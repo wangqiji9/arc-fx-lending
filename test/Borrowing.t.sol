@@ -47,17 +47,17 @@ contract BorrowingTest is BaseTest {
         assertEq(pool.getUserPositionKeys(bob).length, 1, "one position key");
         assertEq(eurc.balanceOf(bob), 500e6, "borrowed eurc received");
 
-        // 清算 HF(LT 94%):1000*0.94 / (500*1.08) = 940/540 = 1.7407
+        // Liquidation HF (LT 94%): 1000*0.94 / (500*1.08) = 940/540 = 1.7407
         uint256 hf = pool.getHealthFactor(bob, address(usdc), address(eurc));
         assertApproxEqAbs(hf, 1.7407e18, 1e15, "liquidation HF");
     }
 
     function test_openPosition_FX_gatedByLTV_not_LT() public {
-        // 抵押 1000 USDC,LTV 90% → 可借价值上限 $900。
+        // Collateral 1000 USDC, LTV 90% → max borrowable value $900.
         _seedEurc(10_000e6);
         _fund(usdc, bob, 1_000e6);
 
-        // 借 800 EURC($864) → LTV-HF = 900/864 = 1.04 ≥ 1,通过
+        // Borrow 800 EURC ($864) → LTV-HF = 900/864 = 1.04 ≥ 1, passes
         vm.prank(bob);
         pool.openPosition(address(usdc), 1_000e6, address(eurc), 800e6);
         assertEq(eurc.balanceOf(bob), 800e6);
@@ -67,8 +67,8 @@ contract BorrowingTest is BaseTest {
         _seedEurc(10_000e6);
         _fund(usdc, bob, 1_000e6);
 
-        // 借 840 EURC($907.2) → LTV-HF = 900/907.2 = 0.992 < 1 → revert
-        // (注意:用 LT 94% 算 HF=940/907=1.036 是“健康”的,证明门控确实是 LTV 而非 LT)
+        // Borrow 840 EURC ($907.2) → LTV-HF = 900/907.2 = 0.992 < 1 → revert
+        // (Note: using LT 94% gives HF=940/907=1.036 which is "healthy", proving the gate is LTV not LT)
         vm.prank(bob);
         vm.expectRevert();
         pool.openPosition(address(usdc), 1_000e6, address(eurc), 840e6);
@@ -78,11 +78,11 @@ contract BorrowingTest is BaseTest {
         _seedUsdc(10_000e6);
         _fund(weth, bob, 1e18);
 
-        // ETH→USDC 走 Standard(无 FX 对):LTV 75%,LT 80%
+        // ETH→USDC uses Standard mode (no FX pair): LTV 75%, LT 80%
         vm.prank(bob);
         pool.openPosition(address(weth), 1e18, address(usdc), 2_000e6);
 
-        // 清算 HF(LT 80%):3000*0.8/2000 = 1.2
+        // Liquidation HF (LT 80%): 3000*0.8/2000 = 1.2
         uint256 hf = pool.getHealthFactor(bob, address(weth), address(usdc));
         assertEq(hf, 1.2e18, "standard liquidation HF");
     }
@@ -91,7 +91,7 @@ contract BorrowingTest is BaseTest {
         _seedUsdc(10_000e6);
         _fund(weth, bob, 1e18);
 
-        // 借 2300 USDC:LTV 75% → 上限 $2250 < $2300 → revert
+        // Borrow 2300 USDC: LTV 75% → cap $2250 < $2300 → revert
         vm.prank(bob);
         vm.expectRevert();
         pool.openPosition(address(weth), 1e18, address(usdc), 2_300e6);
@@ -112,7 +112,7 @@ contract BorrowingTest is BaseTest {
     }
 
     function test_openPosition_revert_borrowCapExceeded() public {
-        // EURC borrowCap = 5_000_000e6;cap 检查在流动性/HF 之前,无需准备这些
+        // EURC borrowCap = 5_000_000e6; cap check happens before liquidity/HF checks, no need to seed those
         _fund(usdc, bob, 1_000e6);
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(BorrowCapExceeded.selector, address(eurc)));
@@ -128,7 +128,7 @@ contract BorrowingTest is BaseTest {
     }
 
     function test_openPosition_revert_insufficientLiquidity() public {
-        _seedEurc(100e6); // 池里只有 100 EURC
+        _seedEurc(100e6); // only 100 EURC in the pool
         _fund(usdc, bob, 1_000e6);
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(InsufficientLiquidity.selector, address(eurc)));
@@ -166,7 +166,7 @@ contract BorrowingTest is BaseTest {
         vm.prank(bob);
         pool.openPosition(address(usdc), 1_000e6, address(eurc), 800e6);
 
-        // 再借 100 → 总 900 EURC($972) 远超 LTV 上限 $900
+        // Borrow 100 more → total 900 EURC ($972) far exceeds LTV cap of $900
         vm.prank(bob);
         vm.expectRevert();
         pool.borrow(address(usdc), address(eurc), 100e6);
@@ -205,7 +205,7 @@ contract BorrowingTest is BaseTest {
         vm.prank(bob);
         pool.openPosition(address(weth), 1_000e18, address(usdc), 1_000e6);
 
-        // 再加 1001 → 2001 > 2000 cap
+        // Add 1001 more → 2001 > 2000 cap
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(CollateralCapExceeded.selector, address(weth)));
         pool.addCollateral(address(weth), address(usdc), 1_001e18);
@@ -221,7 +221,7 @@ contract BorrowingTest is BaseTest {
         vm.prank(bob);
         pool.openPosition(address(usdc), 2_000e6, address(eurc), 500e6);
 
-        // 多存的抵押可取一部分仍健康
+        // Excess collateral: partial withdrawal still leaves the position healthy
         vm.prank(bob);
         pool.withdrawCollateral(address(usdc), address(eurc), 800e6);
 
@@ -236,7 +236,7 @@ contract BorrowingTest is BaseTest {
         vm.prank(bob);
         pool.openPosition(address(usdc), 1_000e6, address(eurc), 800e6);
 
-        // 取走 200 抵押 → 剩 800 USDC,LTV 上限 $720 < 债务 $864 → revert
+        // Withdraw 200 collateral → remaining 800 USDC, LTV cap $720 < debt $864 → revert
         vm.prank(bob);
         vm.expectRevert();
         pool.withdrawCollateral(address(usdc), address(eurc), 200e6);

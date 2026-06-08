@@ -15,7 +15,7 @@ contract DepositWithdrawTest is BaseTest {
     function test_deposit_mintsScaledShares() public {
         _deposit(usdc, alice, 1_000e6);
 
-        // index = RAY 时 scaled == amount
+        // when index = RAY, scaled == amount
         assertEq(pool.getScaledDeposit(address(usdc), alice), 1_000e6, "scaled deposit");
         DataTypes.ReserveData memory r = pool.getReserveData(address(usdc));
         assertEq(r.totalScaledSupply, 1_000e6, "total scaled supply");
@@ -72,51 +72,51 @@ contract DepositWithdrawTest is BaseTest {
     }
 
     function test_withdraw_revert_insufficientLiquidity() public {
-        // alice 出借 1000 USDC,bob 抵押 ETH 借走 800 USDC → 池里只剩 200
+        // alice lends 1000 USDC, bob uses ETH as collateral to borrow 800 USDC → only 200 left in pool
         _deposit(usdc, alice, 1_000e6);
 
         _fund(weth, bob, 1e18);
         vm.prank(bob);
         pool.openPosition(address(weth), 1e18, address(usdc), 800e6);
 
-        // alice 想取 300,但物理可借只剩 200 → InsufficientLiquidity
+        // alice wants to withdraw 300, but only 200 physically available → InsufficientLiquidity
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(InsufficientLiquidity.selector, address(usdc)));
         pool.withdraw(address(usdc), 300e6);
 
-        // 取 200 可以
+        // withdrawing 200 succeeds
         vm.prank(alice);
         pool.withdraw(address(usdc), 200e6);
         assertEq(usdc.balanceOf(alice), 200e6, "withdrew available");
     }
 
     function test_withdraw_excludesCollateralFromLiquidity() public {
-        // 目标:证明可借流动性 = balanceOf − totalCollateral,抵押那部分不算可提取。
-        // 构造 alice 余额(1000) > 可借量(400),让流动性检查成为绑定约束。
+        // Goal: prove that available liquidity = balanceOf − totalCollateral; collateral is not withdrawable.
+        // Construct: alice balance (1000) > available amount (400), so the liquidity check is the binding constraint.
         address carol = makeAddr("carol");
-        _deposit(usdc, alice, 1_000e6); // alice 余额 1000,物理 USDC 1000
-        _deposit(eurc, carol, 1_000e6); // 给 bob 借 EURC 用
+        _deposit(usdc, alice, 1_000e6); // alice balance 1000, physical USDC 1000
+        _deposit(eurc, carol, 1_000e6); // provide EURC liquidity for bob to borrow
 
-        // bob 仓位1:抵押 1000 USDC 借 500 EURC → 物理 USDC 2000,totalCollateral[usdc]=1000
+        // bob position 1: 1000 USDC collateral, borrow 500 EURC → physical USDC 2000, totalCollateral[usdc]=1000
         _fund(usdc, bob, 1_000e6);
         vm.prank(bob);
         pool.openPosition(address(usdc), 1_000e6, address(eurc), 500e6);
 
-        // bob 仓位2:抵押 ETH 借 600 USDC → 物理 USDC 1400
+        // bob position 2: ETH collateral, borrow 600 USDC → physical USDC 1400
         _fund(weth, bob, 1e18);
         vm.prank(bob);
         pool.openPosition(address(weth), 1e18, address(usdc), 600e6);
 
-        // 可借 = 1400 − 1000(抵押) = 400。alice 余额 1000 但只能取 400。
+        // Available = 1400 − 1000 (collateral) = 400. alice balance 1000 but can only withdraw 400.
         assertEq(usdc.balanceOf(address(pool)), 1_400e6, "physical balance");
         assertEq(pool.getTotalCollateral(address(usdc)), 1_000e6, "locked collateral");
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(InsufficientLiquidity.selector, address(usdc)));
-        pool.withdraw(address(usdc), 500e6); // 若抵押被错误计入,500 会通过
+        pool.withdraw(address(usdc), 500e6); // would pass if collateral were incorrectly counted as liquid
 
         vm.prank(alice);
-        pool.withdraw(address(usdc), 400e6); // 恰好等于可借量
+        pool.withdraw(address(usdc), 400e6); // exactly equal to available liquidity
         assertEq(usdc.balanceOf(alice), 400e6, "withdrew exactly available");
     }
 }

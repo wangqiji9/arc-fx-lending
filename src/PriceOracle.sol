@@ -7,26 +7,27 @@ import {IAggregatorV3} from "./interfaces/IAggregatorV3.sol";
 import {StalePrice, InvalidPrice, FeedNotSet, NotAuthorized, ZeroAddress} from "./libraries/DataTypes.sol";
 
 /// @title PriceOracle
-/// @notice Chainlink 价格聚合 + Layer 2 熔断（architecture.md §四.6 / §七）。
-///         方案 B：链上只做 staleness + sanity（纯 view）；偏差(脱锚)监控在链下，
-///         guardian 发现异常调 setPaused。暂停只挡新 borrow/deposit，repay/liquidate 不受影响。
-/// @dev 价格统一归一到 1e8 USD base。即使是 USDC 也走 feed（不硬编码 = 1），
-///      否则永远无法观测 USDC 脱锚——而脱锚正是 §七 的核心尾部风险。
+/// @notice Chainlink price aggregation + Layer 2 circuit breaker (architecture.md §4.6 / §7).
+///         Option B: on-chain logic is limited to staleness + sanity checks (pure view);
+///         deviation (depeg) monitoring is done off-chain — the guardian calls setPaused upon
+///         detecting an anomaly. Pausing only blocks new borrows/deposits; repay/liquidate are unaffected.
+/// @dev All prices are normalized to a 1e8 USD base. Even USDC goes through a feed (not hardcoded to 1),
+///      because hardcoding prevents observation of USDC depegging — and depegging is the core tail risk in §7.
 contract PriceOracle is IPriceOracle, Ownable {
     struct FeedConfig {
         address feed; // Chainlink aggregator
-        uint32 heartbeat; // 最大可接受陈旧秒数（超过即 stale）
-        uint8 feedDecimals; // feed 报价精度（缓存，省一次外部 call）
-        bool set; // 是否已配置
+        uint32 heartbeat; // Maximum acceptable staleness in seconds (beyond this = stale)
+        uint8 feedDecimals; // Feed quote decimals (cached to save one external call)
+        bool set; // Whether the feed has been configured
     }
 
-    /// @notice 资产 => feed 配置。
+    /// @notice Asset => feed configuration.
     mapping(address asset => FeedConfig) public feeds;
 
-    /// @notice 资产 => 是否熔断暂停。
+    /// @notice Asset => whether circuit-breaker pause is active.
     mapping(address asset => bool) public paused;
 
-    /// @notice 可触发暂停的热钱包（与 admin 分离，便于快速响应脱锚）。
+    /// @notice Hot wallet that can trigger a pause (separate from admin for fast response to depeg events).
     address public guardian;
 
     event FeedSet(address indexed asset, address feed, uint32 heartbeat, uint8 feedDecimals);
@@ -41,10 +42,10 @@ contract PriceOracle is IPriceOracle, Ownable {
     constructor(address initialOwner) Ownable(initialOwner) {}
 
     /*//////////////////////////////////////////////////////////////
-                              admin / guardian
+                              ADMIN / GUARDIAN
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice 配置某资产的 Chainlink feed + 心跳。feed 精度从合约现读现缓存。
+    /// @notice Configure the Chainlink feed + heartbeat for an asset. Feed decimals are read and cached on-chain.
     function setFeed(address asset, address feed, uint32 heartbeat) external onlyOwner {
         if (asset == address(0) || feed == address(0)) revert ZeroAddress();
         if (heartbeat == 0) revert InvalidPrice(asset);
@@ -58,14 +59,14 @@ contract PriceOracle is IPriceOracle, Ownable {
         emit GuardianSet(newGuardian);
     }
 
-    /// @notice guardian/owner 熔断或恢复某资产（链下监测到脱锚/偏差异常时调用）。
+    /// @notice Guardian/owner triggers or lifts the circuit breaker for an asset (called when off-chain monitoring detects a depeg or deviation anomaly).
     function setPaused(address asset, bool isPaused_) external onlyGuardianOrOwner {
         paused[asset] = isPaused_;
         emit PausedSet(asset, isPaused_);
     }
 
     /*//////////////////////////////////////////////////////////////
-                                取价
+                                PRICE FETCH
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IPriceOracle
@@ -75,16 +76,16 @@ contract PriceOracle is IPriceOracle, Ownable {
 
         (, int256 answer,, uint256 updatedAt,) = IAggregatorV3(cfg.feed).latestRoundData();
 
-        // sanity：价格必须为正
+        // Sanity: price must be positive
         if (answer <= 0) revert InvalidPrice(asset);
-        // staleness：超过心跳即拒绝（即便 liquidate 也不接受陈旧价 → 等新价）
+        // Staleness: reject if price exceeds heartbeat age (even liquidations must wait for a fresh price)
         if (block.timestamp - updatedAt > cfg.heartbeat) revert StalePrice(cfg.feed);
 
-        // answer 已确保 > 0，转 uint256 恒安全
+        // answer is guaranteed > 0 here, so casting to uint256 is always safe
         // forge-lint: disable-next-line(unsafe-typecast)
         uint256 price = uint256(answer);
 
-        // 归一到 1e8 USD base
+        // Normalize to 1e8 USD base
         if (cfg.feedDecimals == 8) {
             return price;
         } else if (cfg.feedDecimals < 8) {

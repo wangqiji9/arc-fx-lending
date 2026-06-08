@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-/// @notice 协议内所有确定性 key 的【唯一】派生处。
-/// @dev PoolStorage 与 RiskEngine 都引用本库,杜绝两份实现走歪导致 key 对不上。
+/// @notice The single authoritative derivation point for all deterministic keys in the protocol.
+/// @dev Both PoolStorage and RiskEngine import this library, preventing mismatches from two independent implementations diverging.
 library Keys {
-    /// @notice 仓位 key:每个 (owner, 抵押, 债务) 三元组唯一。
+    /// @notice Position key: unique for each (owner, collateral, debt) triple.
     function positionKey(address owner, address collateralAsset, address debtAsset)
         internal
         pure
@@ -13,7 +13,7 @@ library Keys {
         return keccak256(abi.encode(owner, collateralAsset, debtAsset));
     }
 
-    /// @notice 货币对 key:与顺序无关(min,max 归一),A↔B 与 B↔A 命中同一条。
+    /// @notice Currency pair key: order-independent (normalized to min, max), so A↔B and B↔A resolve to the same entry.
     function pairKey(bytes32 currencyA, bytes32 currencyB) internal pure returns (bytes32) {
         return currencyA < currencyB
             ? keccak256(abi.encode(currencyA, currencyB))

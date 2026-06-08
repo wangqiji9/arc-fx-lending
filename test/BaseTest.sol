@@ -8,8 +8,8 @@ import {DataTypes} from "../src/libraries/DataTypes.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockAggregator} from "./mocks/MockAggregator.sol";
 
-/// @notice 测试地基:部署 pool + oracle + USDC/EURC/ETH,配好资产与 USD↔EUR FX 对。
-/// @dev 价格:USDC=$1、EURC=$1.08、ETH=$3000(全 1e8 base)。USDC/EURC 6 位,ETH 18 位。
+/// @notice Test base: deploys pool + oracle + USDC/EURC/ETH, configures assets and USD↔EUR FX pair.
+/// @dev Prices: USDC=$1, EURC=$1.08, ETH=$3000 (all 1e8 base). USDC/EURC 6 decimals, ETH 18 decimals.
 abstract contract BaseTest is Test {
     LendingPool internal pool;
     PriceOracle internal oracle;
@@ -49,7 +49,7 @@ abstract contract BaseTest is Test {
         pool = new LendingPool(address(this), address(oracle));
         pool.setInsuranceFund(insurer);
 
-        // USDC:可借可抵押,USD 货币
+        // USDC: borrowable and collateralizable, USD currency
         pool.configureAsset(
             address(usdc),
             DataTypes.AssetConfig({
@@ -69,7 +69,7 @@ abstract contract BaseTest is Test {
             })
         );
 
-        // EURC:可借可抵押,EUR 货币
+        // EURC: borrowable and collateralizable, EUR currency
         pool.configureAsset(
             address(eurc),
             DataTypes.AssetConfig({
@@ -89,7 +89,7 @@ abstract contract BaseTest is Test {
             })
         );
 
-        // WETH:仅抵押,ETH 货币(Standard 模式)
+        // WETH: collateral only, ETH currency (Standard mode)
         pool.configureAsset(
             address(weth),
             DataTypes.AssetConfig({
@@ -109,7 +109,7 @@ abstract contract BaseTest is Test {
             })
         );
 
-        // FX E-Mode:USD↔EUR,90/94/2.5
+        // FX E-Mode: USD↔EUR, 90/94/2.5
         pool.configureFxCategory(
             USD,
             EUR,
@@ -126,14 +126,14 @@ abstract contract BaseTest is Test {
                                 helpers
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice 给 who mint 代币并对 pool 授权满额。
+    /// @notice Mint tokens to `who` and grant the pool unlimited approval.
     function _fund(MockERC20 token, address who, uint256 amount) internal {
         token.mint(who, amount);
         vm.prank(who);
         token.approve(address(pool), type(uint256).max);
     }
 
-    /// @notice who 存入 amount 的 asset(已资助 + 授权)。
+    /// @notice Deposit `amount` of `asset` on behalf of `who` (funds and approves first).
     function _deposit(MockERC20 token, address who, uint256 amount) internal {
         _fund(token, who, amount);
         vm.prank(who);

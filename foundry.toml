@@ -14,8 +14,8 @@ solc_version = "0.8.24"
 runs = 1000
 
 [profile.default.invariant]
-runs = 128
-depth = 64
+runs = 256
+depth = 128
 call_override = false
 fail_on_revert = false
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-/// @notice Chainlink AggregatorV3 最小接口（只用到取价 + 精度）。
+/// @notice Minimal Chainlink AggregatorV3 interface (only price retrieval and decimals are used).
 interface IAggregatorV3 {
     function decimals() external view returns (uint8);
 

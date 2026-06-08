@@ -3,7 +3,7 @@ pragma solidity 0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-/// @notice 测试用 ERC20,可设精度 + 自由 mint。
+/// @notice Test ERC20 with configurable decimals and unrestricted minting.
 contract MockERC20 is ERC20 {
     uint8 private immutable _dec;
 

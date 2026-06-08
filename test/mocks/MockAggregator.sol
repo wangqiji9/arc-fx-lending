@@ -3,7 +3,7 @@ pragma solidity 0.8.24;
 
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
 
-/// @notice 测试用 Chainlink aggregator,可设价格与更新时间(模拟脱锚/陈旧)。
+/// @notice Test Chainlink aggregator with settable price and update timestamp (simulates de-peg / staleness).
 contract MockAggregator is IAggregatorV3 {
     uint8 public override decimals;
     int256 public answer;
@@ -20,7 +20,7 @@ contract MockAggregator is IAggregatorV3 {
         updatedAt = block.timestamp;
     }
 
-    /// @notice 单独设更新时间(测 staleness)。
+    /// @notice Set the update timestamp independently (for staleness testing).
     function setUpdatedAt(uint256 t) external {
         updatedAt = t;
     }

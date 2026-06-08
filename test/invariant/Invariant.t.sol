@@ -5,8 +5,8 @@ import {BaseTest} from "../BaseTest.sol";
 import {Handler} from "./Handler.sol";
 import {DataTypes, RAY} from "../../src/libraries/DataTypes.sol";
 
-/// @notice 协议核心不变量(对照 state-transitions.md §不变量)。
-/// @dev Handler 随机驱动操作;每条序列后断言下列恒等式始终成立。
+/// @notice Core protocol invariants (see state-transitions.md §invariants).
+/// @dev Handler drives random operations; after each sequence, the following identities must hold.
 contract InvariantTest is BaseTest {
     Handler internal handler;
 
@@ -16,7 +16,7 @@ contract InvariantTest is BaseTest {
     function setUp() public override {
         super.setUp();
 
-        // 拉长 heartbeat,避免 warp 后取价被 staleness 拦(invariant 专用)
+        // extend heartbeat to prevent staleness revert after time warp (invariant test only)
         oracle.setFeed(address(usdc), address(usdcFeed), 36500 days);
         oracle.setFeed(address(eurc), address(eurcFeed), 36500 days);
         oracle.setFeed(address(weth), address(ethFeed), 36500 days);
@@ -32,10 +32,10 @@ contract InvariantTest is BaseTest {
     }
 
     /*//////////////////////////////////////////////////////////////
-                          §不变量 1/2/3:总量一致
+                          §invariants 1/2/3: sum consistency
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice sum(scaledDeposits[a][*]) == totalScaledSupply。
+    /// @notice sum(scaledDeposits[a][*]) == totalScaledSupply.
     function invariant_supplyConsistency() public view {
         for (uint256 i = 0; i < assetList.length; i++) {
             address a = assetList[i];
@@ -47,7 +47,7 @@ contract InvariantTest is BaseTest {
         }
     }
 
-    /// @notice sum(position.scaledDebt where debt==a) == totalScaledBorrow。
+    /// @notice sum(position.scaledDebt where debt==a) == totalScaledBorrow.
     function invariant_borrowConsistency() public view {
         for (uint256 i = 0; i < assetList.length; i++) {
             address a = assetList[i];
@@ -63,7 +63,7 @@ contract InvariantTest is BaseTest {
         }
     }
 
-    /// @notice sum(position.collateralAmount where col==a) == totalCollateral[a]。
+    /// @notice sum(position.collateralAmount where col==a) == totalCollateral[a].
     function invariant_collateralConsistency() public view {
         for (uint256 i = 0; i < assetList.length; i++) {
             address a = assetList[i];
@@ -80,10 +80,10 @@ contract InvariantTest is BaseTest {
     }
 
     /*//////////////////////////////////////////////////////////////
-                       §不变量 4/6:偿付能力 / index
+                       §invariants 4/6: solvency / index
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice 池内物理余额始终覆盖锁定抵押(抵押永不被出借/挪用)。
+    /// @notice Pool physical balance always covers locked collateral (collateral is never lent out or misappropriated).
     function invariant_solvency_collateralBacked() public view {
         for (uint256 i = 0; i < assetList.length; i++) {
             address a = assetList[i];
@@ -95,10 +95,11 @@ contract InvariantTest is BaseTest {
         }
     }
 
-    /// @notice 出借人偿付能力:可借现金 + 在外债务 >= 出借总额 + 锁定抵押。
-    /// @dev 即 balanceOf + borrowed >= supplied + collateral。reserveFactor 盈余使
-    ///      borrowed 略大于 supplied,差额以现金形式留在池中(协议储备),故偿付始终覆盖。
-    ///      注:原文档「supplied >= borrowed」在 reserveFactor>0 时不成立,此为修正后的正确式。
+    /// @notice Supplier solvency: available cash + outstanding debt >= total supplied + locked collateral.
+    /// @dev i.e. balanceOf + borrowed >= supplied + collateral. The reserveFactor surplus causes
+    ///      borrowed to slightly exceed supplied; the difference stays in the pool as cash (protocol reserve),
+    ///      so solvency is always maintained.
+    ///      Note: the original doc formula "supplied >= borrowed" does not hold when reserveFactor>0; this is the corrected form.
     function invariant_supplierSolvency() public view {
         for (uint256 i = 0; i < assetList.length; i++) {
             address a = assetList[i];
@@ -111,7 +112,7 @@ contract InvariantTest is BaseTest {
         }
     }
 
-    /// @notice index 单调:borrowIndex >= liquidityIndex >= RAY(借款人付息 >= 出借人收息)。
+    /// @notice Index ordering is monotonic: borrowIndex >= liquidityIndex >= RAY (borrowers pay more than lenders earn).
     function invariant_indexOrdering() public view {
         for (uint256 i = 0; i < assetList.length; i++) {
             DataTypes.ReserveData memory r = pool.getReserveData(assetList[i]);

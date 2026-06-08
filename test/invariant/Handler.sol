@@ -7,8 +7,8 @@ import {PriceOracle} from "../../src/PriceOracle.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockAggregator} from "../mocks/MockAggregator.sol";
 
-/// @notice invariant fuzz 的操作驱动:随机 deposit/withdraw/借贷/还/清算/改价/推进时间。
-/// @dev 所有调用 try/catch 包裹——非法输入自然 revert、状态不变,不算违反不变量。
+/// @notice Invariant fuzz operation driver: random deposit/withdraw/borrow/repay/liquidate/price change/time warp.
+/// @dev All calls are wrapped in try/catch — invalid inputs naturally revert without changing state, which does not count as an invariant violation.
 contract Handler is Test {
     LendingPool public pool;
     PriceOracle public oracle;
@@ -45,7 +45,7 @@ contract Handler is Test {
         actors = _actors;
         liquidator = _liquidator;
 
-        // 给所有参与者充分 mint + 授权
+        // mint sufficient tokens and grant unlimited approval to all actors
         for (uint256 i = 0; i < actors.length; i++) {
             _fundAll(actors[i]);
         }
@@ -67,7 +67,7 @@ contract Handler is Test {
         return actors[s % actors.length];
     }
 
-    /// @dev 4 个 (抵押,债务) 组合,与 invariant 重算枚举保持一致。
+    /// @dev 4 (collateral, debt) pairs, consistent with the enumeration used in invariant re-computation.
     function _pair(uint256 s) internal view returns (address col, address debt) {
         uint256 i = s % 4;
         if (i == 0) return (address(weth), address(usdc));
@@ -82,7 +82,7 @@ contract Handler is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-                              出借侧
+                              lending side
     //////////////////////////////////////////////////////////////*/
 
     function deposit(uint256 actorSeed, bool useUsdc, uint256 amount) external {
@@ -102,7 +102,7 @@ contract Handler is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-                              借款侧
+                              borrowing side
     //////////////////////////////////////////////////////////////*/
 
     function openPosition(uint256 actorSeed, uint256 pairSeed, uint256 colAmt, uint256 borrowAmt)
@@ -112,8 +112,18 @@ contract Handler is Test {
         (address col, address debt) = _pair(pairSeed);
         colAmt = _colBound(col, colAmt);
         borrowAmt = bound(borrowAmt, 1e6, 50_000e6);
+
+        // T-8: snapshot before
+        uint256 balBefore = MockERC20(col).balanceOf(address(pool));
+        uint256 totBefore = pool.getTotalCollateral(col);
+
         vm.prank(actor);
-        try pool.openPosition(col, colAmt, debt, borrowAmt) {} catch {}
+        try pool.openPosition(col, colAmt, debt, borrowAmt) {
+            // T-8: collateral in — both increase by same amount
+            uint256 deltaBalance = MockERC20(col).balanceOf(address(pool)) - balBefore;
+            uint256 deltaTotal = pool.getTotalCollateral(col) - totBefore;
+            assertEq(deltaBalance, deltaTotal, "openPosition: delta balance == delta totalCollateral");
+        } catch {}
     }
 
     function borrow(uint256 actorSeed, uint256 pairSeed, uint256 borrowAmt) external {
@@ -128,16 +138,36 @@ contract Handler is Test {
         address actor = _actor(actorSeed);
         (address col, address debt) = _pair(pairSeed);
         amt = _colBound(col, amt);
+
+        // T-8: snapshot before
+        uint256 balBefore = MockERC20(col).balanceOf(address(pool));
+        uint256 totBefore = pool.getTotalCollateral(col);
+
         vm.prank(actor);
-        try pool.addCollateral(col, debt, amt) {} catch {}
+        try pool.addCollateral(col, debt, amt) {
+            // T-8: Δbalance must equal ΔtotalCollateral (both increase by same amount)
+            uint256 deltaBalance = MockERC20(col).balanceOf(address(pool)) - balBefore;
+            uint256 deltaTotal = pool.getTotalCollateral(col) - totBefore;
+            assertEq(deltaBalance, deltaTotal, "addCollateral: delta balance == delta totalCollateral");
+        } catch {}
     }
 
     function withdrawCollateral(uint256 actorSeed, uint256 pairSeed, uint256 amt) external {
         address actor = _actor(actorSeed);
         (address col, address debt) = _pair(pairSeed);
         amt = _colBound(col, amt);
+
+        // T-8: snapshot before
+        uint256 balBefore = MockERC20(col).balanceOf(address(pool));
+        uint256 totBefore = pool.getTotalCollateral(col);
+
         vm.prank(actor);
-        try pool.withdrawCollateral(col, debt, amt) {} catch {}
+        try pool.withdrawCollateral(col, debt, amt) {
+            // T-8: both decrease by same amount
+            uint256 deltaBalance = balBefore - MockERC20(col).balanceOf(address(pool));
+            uint256 deltaTotal = totBefore - pool.getTotalCollateral(col);
+            assertEq(deltaBalance, deltaTotal, "withdrawCollateral: delta balance == delta totalCollateral");
+        } catch {}
     }
 
     function repay(uint256 actorSeed, uint256 pairSeed, uint256 amt) external {
@@ -149,15 +179,25 @@ contract Handler is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-                          清算 / 价格 / 时间
+                          liquidation / price / time
     //////////////////////////////////////////////////////////////*/
 
     function liquidate(uint256 targetSeed, uint256 pairSeed, uint256 amt) external {
         address target = _actor(targetSeed);
         (address col, address debt) = _pair(pairSeed);
         amt = bound(amt, 1e6, 60_000e6);
+
+        // T-8: snapshot collateral side before liquidation
+        uint256 colBalBefore = MockERC20(col).balanceOf(address(pool));
+        uint256 colTotBefore = pool.getTotalCollateral(col);
+
         vm.prank(liquidator);
-        try pool.liquidate(target, col, debt, amt) {} catch {}
+        try pool.liquidate(target, col, debt, amt) {
+            // T-8: seized collateral leaves pool — both decrease by same amount
+            uint256 deltaBalance = colBalBefore - MockERC20(col).balanceOf(address(pool));
+            uint256 deltaTotal = colTotBefore - pool.getTotalCollateral(col);
+            assertEq(deltaBalance, deltaTotal, "liquidate: delta balance == delta totalCollateral");
+        } catch {}
     }
 
     function movePrice(uint256 feedSeed, uint256 price) external {
