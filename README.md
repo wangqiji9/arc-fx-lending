@@ -24,7 +24,7 @@ Each (collateral, debt) position uses either Standard or FX risk parameters, det
 
 ### Liquidation
 
-Close factor is dynamic: 50% when HF ≥ 0.98, 100% when HF < 0.98. If collateral is fully exhausted before debt is cleared, the residual (bad debt) is marked for Layer 3 recapitalization via `repayBadDebt`.
+Close factor is dynamic: 50% partial liquidation above an HF threshold, 100% full liquidation below it. The threshold differs by mode — `0.98` in Standard mode, `0.983` in FX E-Mode (the tighter LT 94% + 2.5% bonus needs a higher threshold so a single 50% liquidation still restores HF > 1). If collateral is fully exhausted before debt is cleared, the residual (bad debt) is marked for Layer 3 recapitalization via `repayBadDebt`.
 
 ### Interest
 
@@ -48,11 +48,12 @@ All token transfers are in `LendingPool`. CEI order is strictly observed; risk-i
 
 ### Oracle pause gate
 
-Risk-increasing operations are blocked when the oracle is paused for either asset. Lender `withdraw` is not affected — liquidity exit remains available during emergencies.
+Risk-increasing operations and liquidation are blocked when the oracle is paused for either asset. Untrustworthy prices must not be used to seize collateral. Lender `withdraw` is not affected — liquidity exit remains available during emergencies.
 
 | Operation | Blocked when paused? |
 |-----------|----------------------|
 | `openPosition`, `borrow`, `withdrawCollateral` | Yes |
+| `liquidate` | Yes |
 | `deposit`, `repay`, `addCollateral` | No |
 | `withdraw` (lender) | No |
 
@@ -88,22 +89,15 @@ Test coverage includes:
 
 - Standard and FX E-Mode liquidation paths (partial, full, collateral-constrained)
 - Interest-driven liquidation (high utilization, time warp)
-- Close factor boundary (HF = 0.98)
+- Close factor boundary (Standard 0.98, FX 0.983)
 - Fee-on-transfer rejection
 - PriceOracle: staleness, invalid price, decimal normalization, guardian authorization
 - Multi-position isolation
-- Oracle pause gate (`withdrawCollateral` blocked, lender `withdraw` allowed)
+- Oracle pause gate (`withdrawCollateral` blocked, `liquidate` blocked, lender `withdraw` allowed)
+- WETH borrowing (Standard mode debt asset)
+- LTV vs LT gating (`openPosition`/`borrow` use LTV; `withdrawCollateral` uses LT)
+- Fuzz: LTV enforcement, deposit-withdraw roundtrip, price-driven liquidation, addCollateral monotonicity
 - Invariants: solvency (`balanceOf(pool) ≥ totalCollateral`), delta consistency per operation
-
----
-
-## Deployment
-
-Configure `foundry.toml` with your RPC URL and private key, then:
-
-```shell
-forge script script/Deploy.s.sol --rpc-url arc_testnet --broadcast
-```
 
 ---
 

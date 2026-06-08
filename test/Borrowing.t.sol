@@ -47,13 +47,13 @@ contract BorrowingTest is BaseTest {
         assertEq(pool.getUserPositionKeys(bob).length, 1, "one position key");
         assertEq(eurc.balanceOf(bob), 500e6, "borrowed eurc received");
 
-        // Liquidation HF (LT 94%): 1000*0.94 / (500*1.08) = 940/540 = 1.7407
+        // Liquidation HF (LT 94%): 1000×0.94 / (500×1.08) = 940/540 = 1.7407
         uint256 hf = pool.getHealthFactor(bob, address(usdc), address(eurc));
         assertApproxEqAbs(hf, 1.7407e18, 1e15, "liquidation HF");
     }
 
     function test_openPosition_FX_gatedByLTV_not_LT() public {
-        // Collateral 1000 USDC, LTV 90% → max borrowable value $900.
+        // 1000 USDC collateral, LTV 90% → max borrowable value $900.
         _seedEurc(10_000e6);
         _fund(usdc, bob, 1_000e6);
 
@@ -68,7 +68,7 @@ contract BorrowingTest is BaseTest {
         _fund(usdc, bob, 1_000e6);
 
         // Borrow 840 EURC ($907.2) → LTV-HF = 900/907.2 = 0.992 < 1 → revert
-        // (Note: using LT 94% gives HF=940/907=1.036 which is "healthy", proving the gate is LTV not LT)
+        // (Note: using LT 94% gives HF=940/907=1.036, which is “healthy” — confirming the gate is LTV, not LT)
         vm.prank(bob);
         vm.expectRevert();
         pool.openPosition(address(usdc), 1_000e6, address(eurc), 840e6);
@@ -104,15 +104,16 @@ contract BorrowingTest is BaseTest {
         pool.openPosition(address(usdc), 1_000e6, address(usdc), 100e6);
     }
 
-    function test_openPosition_revert_notBorrowable() public {
+    // WETH is now borrowable; verify that borrowing fails without WETH liquidity in the pool.
+    function test_openPosition_revert_insufficientLiquidity_weth() public {
         _fund(usdc, bob, 1_000e6);
         vm.prank(bob);
-        vm.expectRevert(abi.encodeWithSelector(AssetNotBorrowable.selector, address(weth)));
+        vm.expectRevert(abi.encodeWithSelector(InsufficientLiquidity.selector, address(weth)));
         pool.openPosition(address(usdc), 1_000e6, address(weth), 1e15);
     }
 
     function test_openPosition_revert_borrowCapExceeded() public {
-        // EURC borrowCap = 5_000_000e6; cap check happens before liquidity/HF checks, no need to seed those
+        // EURC borrowCap = 5_000_000e6; cap check happens before liquidity/HF checks, no setup needed
         _fund(usdc, bob, 1_000e6);
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(BorrowCapExceeded.selector, address(eurc)));
@@ -205,7 +206,7 @@ contract BorrowingTest is BaseTest {
         vm.prank(bob);
         pool.openPosition(address(weth), 1_000e18, address(usdc), 1_000e6);
 
-        // Add 1001 more → 2001 > 2000 cap
+        // Add 1001 more → total 2001 > collateralCap of 2000
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(CollateralCapExceeded.selector, address(weth)));
         pool.addCollateral(address(weth), address(usdc), 1_001e18);
@@ -221,7 +222,7 @@ contract BorrowingTest is BaseTest {
         vm.prank(bob);
         pool.openPosition(address(usdc), 2_000e6, address(eurc), 500e6);
 
-        // Excess collateral: partial withdrawal still leaves the position healthy
+        // Extra collateral can be partially withdrawn while still healthy
         vm.prank(bob);
         pool.withdrawCollateral(address(usdc), address(eurc), 800e6);
 

@@ -131,7 +131,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
         uint256 balance = (userScaled * r.liquidityIndex) / RAY; // actual redeemable (floor)
         if (amount > balance) revert InsufficientBalance();
 
-        // Liquidity check: physically available = balanceOf − locked collateral (see state-transitions §2); question whether totalCollateral could be an issue
+        // Liquidity check: physically available = balanceOf − locked collateral (see state-transitions §2)
         uint256 available = IERC20(asset).balanceOf(address(this)) - totalCollateral[asset];
         if (amount > available) revert InsufficientLiquidity(asset);
 
@@ -187,8 +187,8 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
         // E: write debt + cap/liquidity check + recalculate rate
         _drawDebt(key, debtAsset, borrowAmount);
 
-        // C: post-effect HF check (effect-then-verify)
-        _verifyHealthy(key, collateralAsset, debtAsset);
+        // C: post-effect HF check (effect-then-verify), gated by LTV to control initial borrow limits
+        _verifyHealthy(key, collateralAsset, debtAsset, true);
 
         // I: pull collateral first, then push borrow (transfers last)
         _pull(collateralAsset, msg.sender, collateralAmount);
@@ -210,7 +210,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
 
         _accrue(debtAsset);
         _drawDebt(key, debtAsset, borrowAmount);
-        _verifyHealthy(key, collateralAsset, debtAsset);
+        _verifyHealthy(key, collateralAsset, debtAsset, true);
 
         _push(debtAsset, msg.sender, borrowAmount); // I
         emit Borrowed(msg.sender, collateralAsset, debtAsset, borrowAmount);
@@ -262,8 +262,9 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
         totalCollateral[collateralAsset] -= amount;
 
         // C: post-effect HF check (skip if no debt — HF is meaningless with no debt)
+        // Uses LT (not LTV) — consistent with liquidation threshold (M-4)
         if (pos.scaledDebt != 0) {
-            _verifyHealthy(key, collateralAsset, debtAsset);
+            _verifyHealthy(key, collateralAsset, debtAsset, false);
         }
 
         _closeIfEmpty(key, msg.sender);
@@ -320,11 +321,14 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
         DataTypes.Position storage pos = positions[key];
         if (pos.collateralAsset == address(0)) revert PositionNotFound(key);
 
+        // Oracle pause gate: untrustworthy prices must block liquidation to prevent
+        // seizing collateral from positions that may actually be healthy.
+        if (oracle.isPaused(collateralAsset) || oracle.isPaused(debtAsset)) revert OraclePaused(collateralAsset);
+
         _accrue(debtAsset);
         DataTypes.ReserveData storage r = reserves[debtAsset];
 
-        // HF < 1 check (oracle pause is ignored here: liquidation is always permitted;
-        // but getPrice is still subject to staleness constraints)
+        // HF < 1 check
         DataTypes.RiskParams memory params =
             RiskEngine.resolveParams(assetConfig, fxCategories, collateralAsset, debtAsset);
         // Liquidation eligibility uses LT (liquidationThreshold)
@@ -346,7 +350,8 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
                 debtPrice: oracle.getPrice(debtAsset),
                 colUnit: 10 ** assetConfig[collateralAsset].decimals,
                 debtUnit: 10 ** assetConfig[debtAsset].decimals,
-                bonusBps: params.liquidationBonus
+                bonusBps: params.liquidationBonus,
+                isFx: params.isFx
             })
         );
 
@@ -475,15 +480,16 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
         _refreshRate(debtAsset);
     }
 
-    /// @notice effect-then-verify: compute HF from real storage (gated by LTV); revert if < 1
-    ///         (rolls back Effects).
-    /// @dev openPosition/borrow/withdrawCollateral use LTV → leaves a safety buffer between
-    ///      open-position and liquidation threshold (LT) (architecture.md §2).
-    function _verifyHealthy(bytes32 key, address collateralAsset, address debtAsset) internal view {
+    /// @notice effect-then-verify: compute HF from real storage; revert if < 1 (rolls back Effects).
+    /// @dev openPosition/borrow pass useLtv=true → LTV gating (caps initial borrow).
+    ///      withdrawCollateral passes useLtv=false → LT gating (consistent with the liquidation
+    ///      check, so positions can still be adjusted above the LT line after borrowing to the LTV cap).
+    function _verifyHealthy(bytes32 key, address collateralAsset, address debtAsset, bool useLtv) internal view {
         DataTypes.RiskParams memory params =
             RiskEngine.resolveParams(assetConfig, fxCategories, collateralAsset, debtAsset);
+        uint256 threshold = useLtv ? params.ltv : params.liquidationThreshold;
         uint256 hf = RiskEngine.calculateHealthFactor(
-            positions[key], params.ltv, reserves[debtAsset].borrowIndex, oracle, assetConfig
+            positions[key], threshold, reserves[debtAsset].borrowIndex, oracle, assetConfig
         );
         if (hf < WAD) revert HealthFactorTooLow(hf);
     }

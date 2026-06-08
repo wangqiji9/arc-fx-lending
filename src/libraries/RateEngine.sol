@@ -79,10 +79,7 @@ library RateEngine {
     function updateIndexes(DataTypes.ReserveData storage reserve, uint16 reserveFactorBps) internal {
         uint256 dt = block.timestamp - reserve.lastUpdateTimestamp;
         if (dt == 0) return;
-        // Note: the rate used to compute the index here is the stored rate, not a freshly computed one.
-        // Verify that every operation that affects the rate also updates it. For example, does a direct
-        // transfer affect utilization, or are there other operations that change the rate?
-        uint256 rate = reserve.currentBorrowRate; // old rate, ray. Verified: no impact.
+        uint256 rate = reserve.currentBorrowRate; // old rate, ray
         if (rate != 0 && reserve.totalScaledBorrow != 0) {
             // Compute utilization from old indexes (needed for supply-side factor)
             uint256 util = utilization(reserve);

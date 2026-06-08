@@ -8,7 +8,8 @@ import {
     PositionNotFound,
     PositionHealthy,
     PositionStillCollateralized,
-    NotAuthorized
+    NotAuthorized,
+    OraclePaused
 } from "../src/libraries/DataTypes.sol";
 
 /// @notice repay + liquidate (including dynamic close factor, collateral-constrained reverse-compute, bad-debt residual + Layer3).
@@ -159,16 +160,14 @@ contract LiquidationRepayTest is BaseTest {
         assertEq(pool.getUserPositionKeys(bob).length, 1, "residual position kept");
     }
 
-    function test_liquidate_worksWhenOraclePaused() public {
+    function test_liquidate_revertsWhenOraclePaused() public {
         _openEthPosition();
         ethFeed.setAnswer(2400e8);
-        oracle.setPaused(address(weth), true); // de-peg circuit breaker, but liquidation is always permitted
+        oracle.setPaused(address(weth), true);
 
         vm.prank(liquidator);
-        pool.liquidate(bob, address(weth), address(usdc), 5_000e6); // does not revert
-
-        DataTypes.Position memory pos = pool.getPosition(bob, address(weth), address(usdc));
-        assertEq(pos.scaledDebt, 0, "liquidated despite pause");
+        vm.expectRevert(abi.encodeWithSelector(OraclePaused.selector, address(weth)));
+        pool.liquidate(bob, address(weth), address(usdc), 5_000e6);
     }
 
     /*//////////////////////////////////////////////////////////////

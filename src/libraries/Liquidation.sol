@@ -12,8 +12,11 @@ import {BPS} from "./DataTypes.sol";
 ///      the market remains willing to liquidate; only uncovered residual debt
 ///      (collateralAmount==0 && scaledDebt>0) is left for the Layer 3 protocol backstop.
 library Liquidation {
-    /// @notice HF threshold (wad) for the dynamic close factor. HF≥0.98 → partial liquidation; <0.98 → full liquidation.
-    uint256 internal constant CLOSE_FACTOR_HF_THRESHOLD = 0.98e18;
+    /// @notice Default close-factor HF threshold (wad). Standard mode.
+    uint256 internal constant CLOSE_FACTOR_HF_THRESHOLD_STANDARD = 0.98e18;
+    /// @notice FX E-Mode close-factor HF threshold (wad). LT=94% + bonus=2.5% requires a higher
+    ///         threshold to guarantee a single 50% partial liquidation restores HF > 1.
+    uint256 internal constant CLOSE_FACTOR_HF_THRESHOLD_FX = 0.983e18;
     uint256 internal constant CLOSE_FACTOR_PARTIAL = 5000; // 50% bps
     uint256 internal constant CLOSE_FACTOR_FULL = 10000; // 100% bps
 
@@ -27,11 +30,14 @@ library Liquidation {
         uint256 colUnit; // 10**collateralDecimals
         uint256 debtUnit; // 10**debtDecimals
         uint16 bonusBps; // liquidation bonus (bps)
+        bool isFx; // whether this is an FX E-Mode pair (determines closeFactor threshold)
     }
 
     /// @notice Dynamic close factor (prevents death spiral, architecture.md §7). Only called when HF<1.
-    function closeFactorBps(uint256 hf) internal pure returns (uint256) {
-        return hf >= CLOSE_FACTOR_HF_THRESHOLD ? CLOSE_FACTOR_PARTIAL : CLOSE_FACTOR_FULL;
+    ///         FX E-Mode uses a higher threshold so that a 50% partial liquidation is sufficient to restore HF>1.
+    function closeFactorBps(uint256 hf, bool isFx) internal pure returns (uint256) {
+        uint256 threshold = isFx ? CLOSE_FACTOR_HF_THRESHOLD_FX : CLOSE_FACTOR_HF_THRESHOLD_STANDARD;
+        return hf >= threshold ? CLOSE_FACTOR_PARTIAL : CLOSE_FACTOR_FULL;
     }
 
     /// @notice Calculates the final repay amount and seize amount.
@@ -43,7 +49,7 @@ library Liquidation {
         returns (uint256 repayAmt, uint256 seizeAmt)
     {
         // 1. Dynamic close factor → maxRepay, capped by the requested amount
-        uint256 maxRepay = (p.actualDebt * closeFactorBps(p.hf)) / BPS;
+        uint256 maxRepay = (p.actualDebt * closeFactorBps(p.hf, p.isFx)) / BPS;
         repayAmt = p.requestedRepay < maxRepay ? p.requestedRepay : maxRepay;
 
         // 2. Forward-compute seize from repay: seize = repay value × (1+bonus) converted to collateral units
