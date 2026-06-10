@@ -64,6 +64,28 @@ library RateEngine {
     }
 
     /*//////////////////////////////////////////////////////////////
+                              Supply Rate
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Supply (lender) rate = borrowRate × utilization × (1 − reserveFactor), in ray.
+    /// @dev Single source of truth for the supply-side rate. Used both by updateIndexes (to compound
+    ///      the liquidityIndex) and by the agent view layer (LendingPool.viewRates). Keeping one
+    ///      implementation guarantees the rate an agent reads equals the rate actually accrued.
+    ///      Note: only【lender deposits】earn this rate. Collateral locked in a borrow position is
+    ///      non-interest-bearing and earns nothing — see LendingPool agent views for the distinction.
+    /// @param borrowRateRay    current annualized borrow rate, ray
+    /// @param utilizationRay   utilization, ray
+    /// @param reserveFactorBps protocol reserve factor, bps
+    function calculateSupplyRate(uint256 borrowRateRay, uint256 utilizationRay, uint16 reserveFactorBps)
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 oneMinusRf = RAY - (uint256(reserveFactorBps) * RAY) / BPS;
+        return borrowRateRay.rayMul(utilizationRay).rayMul(oneMinusRf);
+    }
+
+    /*//////////////////////////////////////////////////////////////
                             Index Compound Accrual
     //////////////////////////////////////////////////////////////*/
 
@@ -89,8 +111,7 @@ library RateEngine {
             reserve.borrowIndex = uint256(reserve.borrowIndex).rayMul(borrowFactor).toUint128();
 
             // Supply side: supplyRate = rate × util × (1 − reserveFactor)
-            uint256 oneMinusRf = RAY - (uint256(reserveFactorBps) * RAY) / BPS;
-            uint256 supplyRate = rate.rayMul(util).rayMul(oneMinusRf);
+            uint256 supplyRate = calculateSupplyRate(rate, util, reserveFactorBps);
             uint256 liquidityFactor = RAY + (supplyRate * dt) / SECONDS_PER_YEAR;
             reserve.liquidityIndex =
                 uint256(reserve.liquidityIndex).rayMul(liquidityFactor).toUint128();

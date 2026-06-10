@@ -35,12 +35,13 @@ Utilization-based rate model (RateEngine). Interest accrues via ray-math indices
 ## Architecture
 
 ```
-LendingPool (entry point)
+LendingPool (entry point, + OZ Multicall)
 ├── PoolStorage          — all state (reserves, positions, scaledDeposits, totalCollateral)
-├── RateEngine           — index accrual, utilization rate
+├── RateEngine           — index accrual, utilization rate, borrow/supply rate
 ├── RiskEngine           — health factor, LTV check
 ├── Liquidation          — close factor, seize amount, back-calculation
 ├── Keys                 — position key (keccak256 of owner/collateral/debt)
+├── AgentTypes           — return structs for the read-only agent decision layer
 └── PriceOracle          — Chainlink wrapper: staleness check, decimal normalization to 1e8, guardian pause
 ```
 
@@ -56,6 +57,29 @@ Risk-increasing operations and liquidation are blocked when the oracle is paused
 | `liquidate` | Yes |
 | `deposit`, `repay`, `addCollateral` | No |
 | `withdraw` (lender) | No |
+
+---
+
+## Agent integration layer
+
+A read-only decision layer lets a programmatic caller (e.g. a Circle Agent Wallet) discover markets, assess risk, and preview positions, then execute multiple steps atomically. It adds **no new core logic** — every function is `view` and reuses the existing `RateEngine` / `RiskEngine` math, so a preview can never disagree with the real on-chain result.
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `viewRates(asset)` | `(borrowRate, supplyRate)` | Current annualized rates (ray). `supplyRate` uses the same formula `updateIndexes` compounds with. |
+| `getAvailableMarkets()` | `MarketInfo[]` | Every valid (collateral, debt) pair with resolved LTV/LT, borrow & supply rates, liquidity, FX flag. |
+| `getPositionRisk(key)` | `PositionRisk` | Real-time HF, liquidation price (Standard) or buffer (FX), debt, valuations, rates for one position. |
+| `batchGetPositionRisk(keys)` | `PositionRisk[]` | Batch version. |
+| `previewPosition(col, colAmt, debt, borrowAmt)` | `PreviewResult` | Simulate opening a position: resulting HF, liquidation price, post-open borrow rate, `openable` flag — no state change. |
+| `multicall(bytes[])` | `bytes[]` | OZ Multicall: batch several calls (e.g. `addCollateral` + `borrow`) atomically; `msg.sender` is preserved. |
+
+**Health factor parity.** `getPositionRisk` and `previewPosition` compute HF through the *same* `RiskEngine.calculateHealthFactor` path that `liquidate` uses — never a parallel formula. A position the layer reports as healthy cannot be liquidatable on-chain.
+
+**Liquidation price vs. buffer (mode-dependent).**
+- **Standard mode** (e.g. WETH → USDC): reports `liquidationPrice` — the collateral price at which HF reaches `1e18`. The position is liquidatable only when the collateral price drops **strictly below** it. `liquidationPriceApplicable = true`.
+- **FX E-Mode** (e.g. USDC → EURC): `liquidationPrice = 0`, `liquidationPriceApplicable = false`. FX risk is a depeg *jump*, not a continuous approach to a price level — a scalar price would give a false sense of safety. The layer reports `bufferBps` (relative distance of HF above `1e18`) instead.
+
+> ⚠️ **Multicall safety invariant.** The protocol has **no payable entry points**, so the classic OZ Multicall `msg.value`-replay vulnerability cannot occur. If any entry is ever made payable (e.g. to fund Pyth's `updatePriceFeeds`), Multicall must be removed or given explicit `msg.value` accounting. This is enforced by a comment in `LendingPool.sol`.
 
 ---
 
@@ -98,6 +122,8 @@ Test coverage includes:
 - LTV vs LT gating (`openPosition`/`borrow` use LTV; `withdrawCollateral` uses LT)
 - Fuzz: LTV enforcement, deposit-withdraw roundtrip, price-driven liquidation, addCollateral monotonicity
 - Invariants: solvency (`balanceOf(pool) ≥ totalCollateral`), delta consistency per operation
+- Agent layer: `viewRates` parity with the accrual formula, `getAvailableMarkets` enumeration, `getPositionRisk`/`previewPosition` HF parity with `getHealthFactor`, FX buffer vs. Standard price, Multicall atomicity + `msg.sender` preservation
+- D-1 consistency: the reported Standard liquidation price, fed back as the oracle price, drives the *real* `liquidate` (one tick above → healthy/reverts, below → liquidatable)
 
 ---
 

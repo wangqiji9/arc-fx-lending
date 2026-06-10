@@ -83,8 +83,8 @@ library RiskEngine {
         uint256 collValue = (uint256(position.collateralAmount) * collPrice) / colUnit;
 
         // Actual debt: round【up】(debt rounds up), then valuation: round【up】
-        uint256 debtAmount = _mulDivUp(uint256(position.scaledDebt), borrowIndex, RAY);
-        uint256 debtValue = _mulDivUp(debtAmount, debtPrice, debtUnit);
+        uint256 debtAmount = mulDivUp(uint256(position.scaledDebt), borrowIndex, RAY);
+        uint256 debtValue = mulDivUp(debtAmount, debtPrice, debtUnit);
         if (debtValue == 0) return type(uint256).max;
 
         // HF_wad = (collValue × threshold / BPS) × WAD / debtValue  — rounds【down】
@@ -94,7 +94,7 @@ library RiskEngine {
 
     /// @notice Actual debt (native units): scaledDebt × borrowIndex, rounded【up】(debt rounds up).
     function debtOf(uint256 scaledDebt, uint256 borrowIndex) internal pure returns (uint256) {
-        return _mulDivUp(scaledDebt, borrowIndex, RAY);
+        return mulDivUp(scaledDebt, borrowIndex, RAY);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -102,7 +102,10 @@ library RiskEngine {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice ceil(a × b / d). Caller guarantees d != 0.
-    function _mulDivUp(uint256 a, uint256 b, uint256 d) private pure returns (uint256) {
+    /// @dev internal (not private) so the agent view layer reuses the EXACT same debt-side ceil
+    ///      rounding when reporting debtValue / liquidationPrice — single source of truth, no
+    ///      parallel formula that could disagree with calculateHealthFactor (docs/findings.md §D-1).
+    function mulDivUp(uint256 a, uint256 b, uint256 d) internal pure returns (uint256) {
         if (a == 0 || b == 0) return 0;
         return (a * b + d - 1) / d;
     }

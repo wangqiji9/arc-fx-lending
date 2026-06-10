@@ -7,6 +7,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
 
 import {PoolStorage} from "./PoolStorage.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
@@ -14,6 +15,8 @@ import {Keys} from "./libraries/Keys.sol";
 import {RateEngine} from "./libraries/RateEngine.sol";
 import {RiskEngine} from "./libraries/RiskEngine.sol";
 import {Liquidation} from "./libraries/Liquidation.sol";
+import {WadRayMath} from "./libraries/WadRayMath.sol";
+import {AgentTypes} from "./libraries/AgentTypes.sol";
 import "./libraries/DataTypes.sol"; // DataTypes library + constants + file-level errors/events
 
 /// @title LendingPool
@@ -24,10 +27,23 @@ import "./libraries/DataTypes.sol"; // DataTypes library + constants + file-leve
 ///         use effect-then-verify.
 /// @dev Roles: lender (deposit/withdraw, earns interest) and borrower (openPosition/borrow/...,
 ///      isolated positions).
-contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
+///
+///      Multicall (OZ): lets an agent batch several calls (e.g. addCollateral + borrow) atomically
+///      in one transaction. Each sub-call is a delegatecall to `this`, executed sequentially (not
+///      nested), so it composes with `nonReentrant`; `msg.sender` is preserved across the batch, so
+///      positions stay attributed to the agent.
+///
+///      ⚠️ MULTICALL SAFETY INVARIANT — DO NOT BREAK (docs/findings.md §D-1 ③):
+///      The protocol has NO payable entry points. The classic OZ Multicall vulnerability (a payable
+///      function reading msg.value, replayed across delegatecall loop iterations so one msg.value is
+///      "spent" N times) therefore CANNOT occur here. If a future change makes ANY entry payable
+///      (e.g. to forward fees to Pyth's payable updatePriceFeeds), Multicall instantly becomes a
+///      high-severity bug: either add explicit msg.value accounting/guards or remove Multicall.
+contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
     using RateEngine for DataTypes.ReserveData;
+    using WadRayMath for uint256;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -441,6 +457,254 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
         return RiskEngine.calculateHealthFactor(
             pos, params.liquidationThreshold, reserves[debtAsset].borrowIndex, oracle, assetConfig
         );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    Agent decision layer (view, docs/findings.md §D-1)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Current borrow and supply rates for an asset (both ray, annualized).
+    /// @dev view does not accrue, so values reflect the last on-chain operation (the borrow rate does
+    ///      not drift between accruals — it only changes when an operation calls _refreshRate).
+    ///      supplyRate uses the SAME RateEngine.calculateSupplyRate that updateIndexes compounds with,
+    ///      so the rate an agent reads equals the rate actually accrued.
+    /// @return borrowRate annualized borrow rate (ray)
+    /// @return supplyRate annualized lender supply rate (ray)
+    function viewRates(address asset) public view returns (uint256 borrowRate, uint256 supplyRate) {
+        DataTypes.ReserveData storage r = reserves[asset];
+        uint256 util = RateEngine.utilization(r);
+        borrowRate = r.currentBorrowRate;
+        supplyRate = RateEngine.calculateSupplyRate(borrowRate, util, assetConfig[asset].reserveFactor);
+    }
+
+    /// @notice Discover every valid (collateral, debt) market the agent can act on in one call.
+    /// @dev Iterates the existing reservesList (no new registry). A combination is included when:
+    ///      collateral ≠ debt, the debt asset is borrowable, and the resolved LTV > 0 (a 0 LTV means
+    ///      the asset cannot back a borrow). ltv / liquidationThreshold are resolved (FX E-Mode or
+    ///      Standard) per pair. See AgentTypes.MarketInfo for field semantics — in particular,
+    ///      collateralSupplyRate is the asset's market lender rate, NOT locked-collateral yield.
+    function getAvailableMarkets() external view returns (AgentTypes.MarketInfo[] memory markets) {
+        address[] memory assets = reservesList.values();
+        uint256 n = assets.length;
+
+        // First pass: count valid combinations (so we can return a tight array).
+        uint256 count;
+        for (uint256 i; i < n; ++i) {
+            for (uint256 j; j < n; ++j) {
+                if (i == j) continue;
+                if (_isValidMarket(assets[i], assets[j])) ++count;
+            }
+        }
+
+        markets = new AgentTypes.MarketInfo[](count);
+        uint256 k;
+        for (uint256 i; i < n; ++i) {
+            address col = assets[i];
+            (, uint256 colSupplyRate) = viewRates(col);
+            for (uint256 j; j < n; ++j) {
+                if (i == j) continue;
+                address debt = assets[j];
+                if (!_isValidMarket(col, debt)) continue;
+
+                DataTypes.RiskParams memory p =
+                    RiskEngine.resolveParams(assetConfig, fxCategories, col, debt);
+                (uint256 debtBorrowRate,) = viewRates(debt);
+
+                markets[k++] = AgentTypes.MarketInfo({
+                    collateralAsset: col,
+                    debtAsset: debt,
+                    ltv: p.ltv,
+                    liquidationThreshold: p.liquidationThreshold,
+                    debtBorrowRate: debtBorrowRate,
+                    collateralSupplyRate: colSupplyRate,
+                    availableLiquidity: _availableLiquidity(debt),
+                    isFxMode: p.isFx
+                });
+            }
+        }
+    }
+
+    /// @notice Real-time risk snapshot for one position by key.
+    /// @dev HF comes from RiskEngine.calculateHealthFactor on the LT basis — the SAME path liquidate()
+    ///      uses — so this never disagrees with the on-chain liquidation check. liquidationPrice is
+    ///      reported only in Standard mode (single-direction collateral-price drop); FX E-Mode reports
+    ///      bufferBps instead (see AgentTypes / docs/findings.md §D-1 ②). view does not accrue, so HF
+    ///      may be marginally stale (same caveat as getHealthFactor).
+    function getPositionRisk(bytes32 key) public view returns (AgentTypes.PositionRisk memory risk) {
+        risk.key = key;
+        DataTypes.Position memory pos = positions[key];
+        if (pos.collateralAsset == address(0)) {
+            return risk; // exists = false, all fields zero
+        }
+        risk.exists = true;
+
+        address col = pos.collateralAsset;
+        address debt = pos.debtAsset;
+        uint256 borrowIndex = reserves[debt].borrowIndex;
+
+        DataTypes.RiskParams memory p = RiskEngine.resolveParams(assetConfig, fxCategories, col, debt);
+        uint256 hf =
+            RiskEngine.calculateHealthFactor(pos, p.liquidationThreshold, borrowIndex, oracle, assetConfig);
+
+        risk.healthFactor = hf;
+        risk.bufferBps = _bufferBps(hf);
+        risk.currentDebt = RiskEngine.debtOf(pos.scaledDebt, borrowIndex);
+
+        // Collateral / debt USD valuations: reuse the exact rounding of calculateHealthFactor.
+        uint256 colPrice = oracle.getPrice(col);
+        uint256 colUnit = 10 ** assetConfig[col].decimals;
+        risk.collateralValue = (uint256(pos.collateralAmount) * colPrice) / colUnit;
+        if (pos.scaledDebt != 0) {
+            uint256 debtPrice = oracle.getPrice(debt);
+            uint256 debtUnit = 10 ** assetConfig[debt].decimals;
+            risk.debtValue = RiskEngine.mulDivUp(risk.currentDebt, debtPrice, debtUnit);
+        }
+
+        bool hasDebt = pos.scaledDebt != 0;
+        risk.liquidationPriceApplicable = hasDebt && !p.isFx;
+        if (risk.liquidationPriceApplicable) {
+            risk.liquidationPrice =
+                _standardLiquidationPrice(risk.debtValue, pos.collateralAmount, p.liquidationThreshold, colUnit);
+        }
+
+        (uint256 debtBorrowRate,) = viewRates(debt);
+        (, uint256 colSupplyRate) = viewRates(col);
+        risk.debtBorrowRate = debtBorrowRate;
+        risk.collateralSupplyRate = colSupplyRate;
+    }
+
+    /// @notice Batch version of getPositionRisk.
+    function batchGetPositionRisk(bytes32[] calldata keys)
+        external
+        view
+        returns (AgentTypes.PositionRisk[] memory out)
+    {
+        out = new AgentTypes.PositionRisk[](keys.length);
+        for (uint256 i; i < keys.length; ++i) {
+            out[i] = getPositionRisk(keys[i]);
+        }
+    }
+
+    /// @notice Simulate opening (collateralAsset, collateralAmount, debtAsset, borrowAmount) without
+    ///         changing state, returning the resulting risk and the rate the agent would actually pay.
+    /// @dev Both HFs come from RiskEngine.calculateHealthFactor (LTV basis = the open gate, LT basis =
+    ///      risk distance) — no parallel formula, so preview cannot claim "healthy" while a real open
+    ///      reverts. borrowRate is computed at the POST-open utilization (the rate the agent will pay
+    ///      after borrowing), not the current one. Reverts only on misconfiguration (unconfigured /
+    ///      same-asset); an unhealthy or illiquid request returns openable = false rather than reverting.
+    function previewPosition(
+        address collateralAsset,
+        uint256 collateralAmount,
+        address debtAsset,
+        uint256 borrowAmount
+    ) external view returns (AgentTypes.PreviewResult memory res) {
+        _requireConfigured(collateralAsset);
+        _requireConfigured(debtAsset);
+        if (collateralAsset == debtAsset) revert SameAsset();
+
+        DataTypes.ReserveData storage r = reserves[debtAsset];
+        uint256 borrowIndex = r.borrowIndex;
+
+        // Build an in-memory position; debt scaled up (debt rounds up), matching _drawDebt.
+        DataTypes.Position memory pos = DataTypes.Position({
+            collateralAsset: collateralAsset,
+            debtAsset: debtAsset,
+            collateralAmount: collateralAmount.toUint128(),
+            scaledDebt: ((borrowAmount * RAY + borrowIndex - 1) / borrowIndex).toUint128()
+        });
+
+        DataTypes.RiskParams memory p =
+            RiskEngine.resolveParams(assetConfig, fxCategories, collateralAsset, debtAsset);
+
+        uint256 ltvHf = RiskEngine.calculateHealthFactor(pos, p.ltv, borrowIndex, oracle, assetConfig);
+        uint256 ltHf =
+            RiskEngine.calculateHealthFactor(pos, p.liquidationThreshold, borrowIndex, oracle, assetConfig);
+
+        res.healthFactor = ltHf;
+        res.ltvHealthFactor = ltvHf;
+        res.bufferBps = _bufferBps(ltHf);
+        res.isFxMode = p.isFx;
+
+        uint256 avail = _availableLiquidity(debtAsset);
+        res.availableLiquidity = avail;
+        res.openable = ltvHf >= WAD && borrowAmount <= avail && assetConfig[debtAsset].borrowable;
+
+        bool hasDebt = borrowAmount != 0;
+        res.liquidationPriceApplicable = hasDebt && !p.isFx;
+        if (res.liquidationPriceApplicable) {
+            uint256 debtPrice = oracle.getPrice(debtAsset);
+            uint256 debtUnit = 10 ** assetConfig[debtAsset].decimals;
+            uint256 debtAmount = RiskEngine.debtOf(pos.scaledDebt, borrowIndex);
+            uint256 debtValue = RiskEngine.mulDivUp(debtAmount, debtPrice, debtUnit);
+            uint256 colUnit = 10 ** assetConfig[collateralAsset].decimals;
+            res.liquidationPrice =
+                _standardLiquidationPrice(debtValue, pos.collateralAmount, p.liquidationThreshold, colUnit);
+        }
+
+        // borrowRate at post-open utilization: recompute with the simulated extra debt.
+        uint256 postUtil = _utilizationWithExtraBorrow(debtAsset, borrowAmount);
+        res.borrowRate = RateEngine.calculateBorrowRate(postUtil, assetConfig[debtAsset].fxPremium);
+        (, res.collateralSupplyRate) = viewRates(collateralAsset);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    Agent decision layer — internal helpers (view)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice A (col, debt) pair is a valid market when assets differ, debt is borrowable, and the
+    ///         resolved collateral LTV > 0 (LTV 0 → cannot back a borrow).
+    function _isValidMarket(address col, address debt) internal view returns (bool) {
+        if (col == debt) return false;
+        if (!assetConfig[col].configured || !assetConfig[debt].configured) return false;
+        if (!assetConfig[debt].borrowable) return false;
+        DataTypes.RiskParams memory p = RiskEngine.resolveParams(assetConfig, fxCategories, col, debt);
+        return p.ltv > 0;
+    }
+
+    /// @notice Borrowable liquidity right now = pool balance − locked collateral (matches _drawDebt).
+    function _availableLiquidity(address asset) internal view returns (uint256) {
+        uint256 bal = IERC20(asset).balanceOf(address(this));
+        uint256 locked = totalCollateral[asset];
+        return bal > locked ? bal - locked : 0;
+    }
+
+    /// @notice Relative safety buffer in bps = (HF − 1e18) × BPS / 1e18; 0 when HF ≤ 1e18.
+    /// @dev type(uint256).max (no debt) maps to 0 — a debtless position has no liquidation distance to report.
+    function _bufferBps(uint256 hf) internal pure returns (uint256) {
+        if (hf == type(uint256).max) return 0;
+        if (hf <= WAD) return 0;
+        return ((hf - WAD) * BPS) / WAD;
+    }
+
+    /// @notice Standard-mode liquidation price (1e8): the collateral price at which HF = 1e18.
+    /// @dev Inverts calculateHealthFactor for the single direction "collateral price drops":
+    ///        HF = (colAmt × price / colUnit × LT / BPS) × WAD / debtValue = WAD
+    ///      ⇒ price = debtValue × BPS × colUnit / (colAmt × LT). Rounded UP so the reported price is
+    ///      marginally conservative (feeding it back makes HF ≤ 1e18 → liquidatable; see D-1 consistency test).
+    ///      Returns 0 if collateral or LT is 0.
+    function _standardLiquidationPrice(
+        uint256 debtValue,
+        uint256 collateralAmount,
+        uint16 liquidationThreshold,
+        uint256 colUnit
+    ) internal pure returns (uint256) {
+        if (collateralAmount == 0 || liquidationThreshold == 0 || debtValue == 0) return 0;
+        uint256 denom = collateralAmount * liquidationThreshold;
+        return (debtValue * BPS * colUnit + denom - 1) / denom;
+    }
+
+    /// @notice Utilization if `extraBorrow` more debt were drawn now (for previewPosition's post-open rate).
+    /// @dev Mirrors RateEngine.utilization but adds extraBorrow to the debt side at the current index.
+    function _utilizationWithExtraBorrow(address asset, uint256 extraBorrow)
+        internal
+        view
+        returns (uint256)
+    {
+        DataTypes.ReserveData storage r = reserves[asset];
+        uint256 totalSupply = (uint256(r.totalScaledSupply) * r.liquidityIndex) / RAY;
+        if (totalSupply == 0) return 0;
+        uint256 totalBorrow = (uint256(r.totalScaledBorrow) * r.borrowIndex) / RAY + extraBorrow;
+        return (totalBorrow * RAY) / totalSupply;
     }
 
     /*//////////////////////////////////////////////////////////////
