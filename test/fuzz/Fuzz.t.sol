@@ -140,7 +140,7 @@ contract FuzzTest is BaseTest {
         pool.openPosition(address(weth), 1e18, address(usdc), 2_000e6);
 
         // Move price to fuzz value
-        ethFeed.setAnswer(int256(ethPrice));
+        oracle.setPrice(address(weth), ethPrice);
 
         // Fund liquidator
         _fund(usdc, liquidator, 10_000e6);
@@ -148,13 +148,13 @@ contract FuzzTest is BaseTest {
         if (ethPrice < 2_500e8) {
             // Should be liquidatable (HF < 1)
             vm.prank(liquidator);
-            pool.liquidate(bob, address(weth), address(usdc), 1_000e6);
+            pool.liquidate(bob, address(weth), address(usdc), 1_000e6, 0);
             // If we reach here, liquidation succeeded
         } else {
             // Should revert with PositionHealthy
             vm.prank(liquidator);
             vm.expectRevert();
-            pool.liquidate(bob, address(weth), address(usdc), 1_000e6);
+            pool.liquidate(bob, address(weth), address(usdc), 1_000e6, 0);
         }
     }
 }

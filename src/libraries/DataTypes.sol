@@ -114,6 +114,7 @@ error PositionStillCollateralized(bytes32 key); // collateral still present; sho
 error PositionNotFound(bytes32 key);
 error HealthFactorTooLow(uint256 hf); // HF < 1 after the operation
 error PositionHealthy(uint256 hf); // HF >= 1 during liquidation; position cannot be liquidated
+error InsufficientCollateralSeized(uint256 seized, uint256 minRequired); // liquidator slippage guard: actual seize < minCollateralOut
 
 // Oracle
 error StalePrice(address oracle);

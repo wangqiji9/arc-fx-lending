@@ -2,13 +2,13 @@
 pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {PriceOracle} from "../../src/PriceOracle.sol";
+import {ChainlinkPriceOracle} from "../../src/oracles/ChainlinkPriceOracle.sol";
 import {MockAggregator} from "../mocks/MockAggregator.sol";
 import {StalePrice, InvalidPrice, FeedNotSet, NotAuthorized} from "../../src/libraries/DataTypes.sol";
 
-/// @notice T-4: PriceOracle unit tests — staleness / InvalidPrice / decimal normalization / guardian authorization.
+/// @notice T-4: ChainlinkPriceOracle unit tests — staleness / InvalidPrice / decimal normalization / guardian authorization.
 contract PriceOracleTest is Test {
-    PriceOracle internal oracle;
+    ChainlinkPriceOracle internal oracle;
     MockAggregator internal feed8;  // 8-decimal feed (standard)
     MockAggregator internal feed6;  // 6-decimal feed (low precision)
     MockAggregator internal feed18; // 18-decimal feed (high precision)
@@ -18,7 +18,7 @@ contract PriceOracleTest is Test {
     address internal attacker = makeAddr("attacker");
 
     function setUp() public {
-        oracle = new PriceOracle(address(this));
+        oracle = new ChainlinkPriceOracle(address(this));
         oracle.setGuardian(guardian);
 
         feed8  = new MockAggregator(8, 1e8);    // $1.00, 8 decimals

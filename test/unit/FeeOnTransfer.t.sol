@@ -3,9 +3,8 @@ pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {LendingPool} from "../../src/LendingPool.sol";
-import {PriceOracle} from "../../src/PriceOracle.sol";
+import {MockPriceOracle} from "../mocks/MockPriceOracle.sol";
 import {DataTypes} from "../../src/libraries/DataTypes.sol";
-import {MockAggregator} from "../mocks/MockAggregator.sol";
 import {MockFeeToken} from "../mocks/MockFeeToken.sol";
 import {TransferAmountMismatch} from "../../src/libraries/DataTypes.sol";
 
@@ -13,22 +12,20 @@ import {TransferAmountMismatch} from "../../src/libraries/DataTypes.sol";
 /// @dev MockFeeToken deducts 1% on transfer; actual amount received < requested amount → _pull balance-difference check should revert.
 contract FeeOnTransferTest is Test {
     LendingPool internal pool;
-    PriceOracle internal oracle;
+    MockPriceOracle internal oracle;
     MockFeeToken internal feeToken;
-    MockAggregator internal feeFeed;
 
     address internal alice = makeAddr("alice");
     bytes32 internal constant USD = bytes32("USD");
 
     function setUp() public {
-        oracle = new PriceOracle(address(this));
+        oracle = new MockPriceOracle(address(this));
         pool = new LendingPool(address(this), address(oracle));
         pool.setInsuranceFund(makeAddr("insurer"));
 
         feeToken = new MockFeeToken(6);
-        feeFeed = new MockAggregator(8, 1e8); // $1.00
 
-        oracle.setFeed(address(feeToken), address(feeFeed), 1 days);
+        oracle.setPrice(address(feeToken), 1e8); // $1.00
         pool.configureAsset(
             address(feeToken),
             DataTypes.AssetConfig({
@@ -41,7 +38,7 @@ contract FeeOnTransferTest is Test {
                 reserveFactor: 1000,
                 fxPremium: 0,
                 currency: USD,
-                oracle: address(feeFeed),
+                oracle: address(oracle),
                 borrowCap: 10_000_000e6,
                 collateralCap: 10_000_000e6,
                 depositCap: 0

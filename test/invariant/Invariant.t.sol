@@ -16,16 +16,11 @@ contract InvariantTest is BaseTest {
     function setUp() public override {
         super.setUp();
 
-        // extend heartbeat to prevent staleness revert after time warp (invariant test only)
-        oracle.setFeed(address(usdc), address(usdcFeed), 36500 days);
-        oracle.setFeed(address(eurc), address(eurcFeed), 36500 days);
-        oracle.setFeed(address(weth), address(ethFeed), 36500 days);
-
         actorList = [makeAddr("inv_a"), makeAddr("inv_b"), makeAddr("inv_c")];
         assetList = [address(usdc), address(eurc), address(weth)];
 
         handler = new Handler(
-            pool, oracle, usdc, eurc, weth, usdcFeed, eurcFeed, ethFeed, actorList, makeAddr("inv_liq")
+            pool, oracle, usdc, eurc, weth, actorList, makeAddr("inv_liq")
         );
 
         targetContract(address(handler));

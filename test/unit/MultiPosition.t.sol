@@ -40,12 +40,12 @@ contract MultiPositionTest is BaseTest {
         vm.stopPrank();
 
         // ETH crashes; Standard position HF < 1
-        ethFeed.setAnswer(1200e8); // HF_LT = 1200×0.80/1000 = 0.96 < 1
+        oracle.setPrice(address(weth), 1200e8); // HF_LT = 1200×0.80/1000 = 0.96 < 1
 
         // liquidate the WETH→USDC position
         _fund(usdc, liquidator, 10_000e6);
         vm.prank(liquidator);
-        pool.liquidate(alice, address(weth), address(usdc), 10_000e6);
+        pool.liquidate(alice, address(weth), address(usdc), 10_000e6, 0);
 
         DataTypes.Position memory stdPos = pool.getPosition(alice, address(weth), address(usdc));
         assertEq(stdPos.scaledDebt, 0, "Standard position liquidated");

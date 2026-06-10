@@ -69,7 +69,7 @@ contract WethBorrowTest is BaseTest {
         pool.openPosition(address(usdc), 1_000e6, address(weth), 0.2e18);
 
         // ETH rises above the liquidation threshold ($4000)
-        ethFeed.setAnswer(4100e8);
+        oracle.setPrice(address(weth), 4100e8);
 
         uint256 hf = pool.getHealthFactor(bob, address(usdc), address(weth));
         assertLt(hf, 1e18, "HF < 1 after ETH price rise");
@@ -80,7 +80,7 @@ contract WethBorrowTest is BaseTest {
         uint256 liquidatorUsdcBefore = usdc.balanceOf(liquidator);
 
         vm.prank(liquidator);
-        pool.liquidate(bob, address(usdc), address(weth), 0.2e18);
+        pool.liquidate(bob, address(usdc), address(weth), 0.2e18, 0);
 
         uint256 usdcReceived = usdc.balanceOf(liquidator) - liquidatorUsdcBefore;
         // Expected seize: 861 USDC (820 USDC debt value * 1.05 bonus / $1 USDC)
@@ -139,7 +139,7 @@ contract WethBorrowTest is BaseTest {
         pool.openPosition(address(usdc), 1_000e6, address(weth), 0.2e18);
 
         // ETH falls: debt value drops, HF improves
-        ethFeed.setAnswer(2000e8);
+        oracle.setPrice(address(weth), 2000e8);
 
         uint256 hf = pool.getHealthFactor(bob, address(usdc), address(weth));
         assertGt(hf, 1.5e18, "short position more healthy as ETH falls");
@@ -148,6 +148,6 @@ contract WethBorrowTest is BaseTest {
         _fund(weth, liquidator, 0.2e18);
         vm.prank(liquidator);
         vm.expectRevert();
-        pool.liquidate(bob, address(usdc), address(weth), 0.2e18);
+        pool.liquidate(bob, address(usdc), address(weth), 0.2e18, 0);
     }
 }

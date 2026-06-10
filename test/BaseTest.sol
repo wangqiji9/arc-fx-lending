@@ -3,24 +3,22 @@ pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {LendingPool} from "../src/LendingPool.sol";
-import {PriceOracle} from "../src/PriceOracle.sol";
+import {MockPriceOracle} from "./mocks/MockPriceOracle.sol";
 import {DataTypes} from "../src/libraries/DataTypes.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockAggregator} from "./mocks/MockAggregator.sol";
 
 /// @notice Test foundation: deploys pool + oracle + USDC/EURC/ETH, configures assets and the USD↔EUR FX pair.
 /// @dev Prices: USDC=$1, EURC=$1.08, ETH=$3000 (all 1e8 base). USDC/EURC 6 decimals, ETH 18 decimals.
+///      Uses MockPriceOracle (a plain settable 1e8 price container) so tests are decoupled from any
+///      real oracle vendor; vendor-specific behavior (Chainlink staleness/decimals) is covered in
+///      its own unit test.
 abstract contract BaseTest is Test {
     LendingPool internal pool;
-    PriceOracle internal oracle;
+    MockPriceOracle internal oracle;
 
     MockERC20 internal usdc;
     MockERC20 internal eurc;
     MockERC20 internal weth;
-
-    MockAggregator internal usdcFeed;
-    MockAggregator internal eurcFeed;
-    MockAggregator internal ethFeed;
 
     bytes32 internal constant USD = bytes32("USD");
     bytes32 internal constant EUR = bytes32("EUR");
@@ -32,19 +30,15 @@ abstract contract BaseTest is Test {
     address internal insurer = makeAddr("insurer");
 
     function setUp() public virtual {
-        oracle = new PriceOracle(address(this));
+        oracle = new MockPriceOracle(address(this));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         eurc = new MockERC20("Euro Coin", "EURC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
 
-        usdcFeed = new MockAggregator(8, 1e8); // $1.00
-        eurcFeed = new MockAggregator(8, 1.08e8); // $1.08
-        ethFeed = new MockAggregator(8, 3000e8); // $3000
-
-        oracle.setFeed(address(usdc), address(usdcFeed), 1 days);
-        oracle.setFeed(address(eurc), address(eurcFeed), 1 days);
-        oracle.setFeed(address(weth), address(ethFeed), 1 days);
+        oracle.setPrice(address(usdc), 1e8); // $1.00
+        oracle.setPrice(address(eurc), 1.08e8); // $1.08
+        oracle.setPrice(address(weth), 3000e8); // $3000
 
         pool = new LendingPool(address(this), address(oracle));
         pool.setInsuranceFund(insurer);
@@ -62,7 +56,7 @@ abstract contract BaseTest is Test {
                 reserveFactor: 1000, // 10%
                 fxPremium: 100, // 1%
                 currency: USD,
-                oracle: address(usdcFeed),
+                oracle: address(oracle),
                 borrowCap: 10_000_000e6,
                 collateralCap: 10_000_000e6,
                 depositCap: 0
@@ -82,7 +76,7 @@ abstract contract BaseTest is Test {
                 reserveFactor: 1000,
                 fxPremium: 200, // 2%
                 currency: EUR,
-                oracle: address(eurcFeed),
+                oracle: address(oracle),
                 borrowCap: 5_000_000e6,
                 collateralCap: 5_000_000e6,
                 depositCap: 0
@@ -102,7 +96,7 @@ abstract contract BaseTest is Test {
                 reserveFactor: 1000,
                 fxPremium: 0,
                 currency: ETHC,
-                oracle: address(ethFeed),
+                oracle: address(oracle),
                 borrowCap: 1000e18,
                 collateralCap: 2000e18,
                 depositCap: 0

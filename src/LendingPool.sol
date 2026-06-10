@@ -310,11 +310,16 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
 
     /// @notice Liquidate a position with HF < 1: repay part or all of the debt and
     ///         receive equivalent collateral + bonus.
+    /// @param minCollateralOut Liquidator slippage guard: the call reverts if the collateral
+    ///        actually seized is below this amount. The seize value is derived from the oracle
+    ///        price at execution time, so a price move between submission and execution changes
+    ///        the payout; this bounds the liquidator's downside. Pass 0 to disable the guard.
     function liquidate(
         address account,
         address collateralAsset,
         address debtAsset,
-        uint256 repayAmount
+        uint256 repayAmount,
+        uint256 minCollateralOut
     ) external nonReentrant {
         if (repayAmount == 0) revert InvalidAmount();
         bytes32 key = Keys.positionKey(account, collateralAsset, debtAsset);
@@ -354,6 +359,10 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable {
                 isFx: params.isFx
             })
         );
+
+        // Liquidator slippage guard: bound the downside from oracle price moves between
+        // submission and execution. Checked before state changes (fail-fast).
+        if (seized < minCollateralOut) revert InsufficientCollateralSeized(seized, minCollateralOut);
 
         // E: reduce debt (round down; zero out on full repayment)
         uint256 scaledRepaid = repaid == actualDebt ? pos.scaledDebt : (repaid * RAY) / r.borrowIndex;

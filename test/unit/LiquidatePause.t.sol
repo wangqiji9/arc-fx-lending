@@ -23,7 +23,7 @@ contract LiquidatePauseTest is BaseTest {
         pool.openPosition(address(weth), 1e18, address(usdc), 2_000e6);
 
         // crash ETH price to make bob liquidatable (HF < 1)
-        ethFeed.setAnswer(2_000e8); // $3000 → $2000, HF ≈ 0.8
+        oracle.setPrice(address(weth), 2_000e8); // $3000 → $2000, HF ≈ 0.8
 
         // fund liquidator
         _fund(usdc, liquidator, 50_000e6);
@@ -37,7 +37,7 @@ contract LiquidatePauseTest is BaseTest {
 
         vm.prank(liquidator);
         vm.expectRevert(abi.encodeWithSelector(OraclePaused.selector, address(weth)));
-        pool.liquidate(bob, address(weth), address(usdc), type(uint256).max);
+        pool.liquidate(bob, address(weth), address(usdc), type(uint256).max, 0);
     }
 
     function test_liquidate_reverts_whenDebtPaused() public {
@@ -46,7 +46,7 @@ contract LiquidatePauseTest is BaseTest {
 
         vm.prank(liquidator);
         vm.expectRevert(abi.encodeWithSelector(OraclePaused.selector, address(weth)));
-        pool.liquidate(bob, address(weth), address(usdc), type(uint256).max);
+        pool.liquidate(bob, address(weth), address(usdc), type(uint256).max, 0);
     }
 
     function test_liquidate_succeeds_afterUnpause() public {
@@ -58,12 +58,12 @@ contract LiquidatePauseTest is BaseTest {
 
         // liquidation should go through
         vm.prank(liquidator);
-        pool.liquidate(bob, address(weth), address(usdc), type(uint256).max);
+        pool.liquidate(bob, address(weth), address(usdc), type(uint256).max, 0);
     }
 
     function test_liquidate_succeeds_whenNothingPaused() public {
         // sanity: liquidation works normally without pause
         vm.prank(liquidator);
-        pool.liquidate(bob, address(weth), address(usdc), type(uint256).max);
+        pool.liquidate(bob, address(weth), address(usdc), type(uint256).max, 0);
     }
 }

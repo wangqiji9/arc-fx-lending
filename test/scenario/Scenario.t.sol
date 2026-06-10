@@ -53,9 +53,7 @@ contract ScenarioTest is BaseTest {
         // ── ETH price crashes from $3000 -> $2200 (below liquidation threshold) ──
         // Threshold: ETH price where HF=1 with LT=80%, ~2501 USDC debt -> $3126.25
         // At $2200 and ~2001 USDC debt: HF = (2200*0.8)/2001 ≈ 0.879 < 1 -> liquidatable
-        // Also refresh USDC feed to avoid staleness after 30-day warp.
-        ethFeed.setAnswer(2200e8);
-        usdcFeed.setAnswer(1e8);
+        oracle.setPrice(address(weth), 2200e8);
 
         uint256 hf = pool.getHealthFactor(bob, address(weth), address(usdc));
         assertLt(hf, 1e18, "HF must be below 1 after price drop");
@@ -65,7 +63,7 @@ contract ScenarioTest is BaseTest {
         uint256 liquidatorEthBefore = weth.balanceOf(liquidator);
 
         vm.prank(liquidator);
-        pool.liquidate(bob, address(weth), address(usdc), 5_000e6); // request >> debt -> capped
+        pool.liquidate(bob, address(weth), address(usdc), 5_000e6, 0); // request >> debt -> capped
 
         // Liquidator received WETH
         uint256 ethSeized = weth.balanceOf(liquidator) - liquidatorEthBefore;
@@ -111,7 +109,7 @@ contract ScenarioTest is BaseTest {
         assertEq(posBefore.collateralAmount, 1e18, "initial collateral");
 
         // ── ETH crashes to $1000 -> position is severely undercollateralized ──
-        ethFeed.setAnswer(1000e8);
+        oracle.setPrice(address(weth), 1000e8);
 
         uint256 hf = pool.getHealthFactor(bob, address(weth), address(usdc));
         assertLt(hf, 0.98e18, "HF well below 0.98 -> 100% close factor");
@@ -122,7 +120,7 @@ contract ScenarioTest is BaseTest {
         uint256 liquidatorUsdcBefore = usdc.balanceOf(liquidator);
 
         vm.prank(liquidator);
-        pool.liquidate(bob, address(weth), address(usdc), 5_000e6);
+        pool.liquidate(bob, address(weth), address(usdc), 5_000e6, 0);
 
         uint256 ethSeized = weth.balanceOf(liquidator) - liquidatorEthBefore;
         uint256 usdcPaid = liquidatorUsdcBefore - usdc.balanceOf(liquidator);
@@ -182,7 +180,7 @@ contract ScenarioTest is BaseTest {
         // ── EURC appreciates from $1.08 -> $1.20 ──────────────────────────────
         // At $1.20: debtValue = 800 * 1.20e8 = 960e8, riskAdjColl = 1000e8 * 94% = 940e8
         // HF = 940/960 ≈ 0.979 WAD < 1 -> liquidatable
-        eurcFeed.setAnswer(1.20e8);
+        oracle.setPrice(address(eurc), 1.20e8);
 
         uint256 hfAfter = pool.getHealthFactor(bob, address(usdc), address(eurc));
         assertLt(hfAfter, 1e18, "HF must be below 1 after EURC appreciation");
@@ -195,7 +193,7 @@ contract ScenarioTest is BaseTest {
         uint256 liquidatorEurcBefore = eurc.balanceOf(liquidator);
 
         vm.prank(liquidator);
-        pool.liquidate(bob, address(usdc), address(eurc), 800e6);
+        pool.liquidate(bob, address(usdc), address(eurc), 800e6, 0);
 
         uint256 usdcReceived = usdc.balanceOf(liquidator) - liquidatorUsdcBefore;
         uint256 eurcPaid = liquidatorEurcBefore - eurc.balanceOf(liquidator);

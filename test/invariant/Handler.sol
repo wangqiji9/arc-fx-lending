@@ -3,34 +3,27 @@ pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {LendingPool} from "../../src/LendingPool.sol";
-import {PriceOracle} from "../../src/PriceOracle.sol";
+import {MockPriceOracle} from "../mocks/MockPriceOracle.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockAggregator} from "../mocks/MockAggregator.sol";
 
 /// @notice Invariant fuzz operation driver: random deposit/withdraw/borrow/repay/liquidate/price change/time warp.
 /// @dev All calls are wrapped in try/catch — invalid inputs naturally revert without changing state, which does not count as an invariant violation.
 contract Handler is Test {
     LendingPool public pool;
-    PriceOracle public oracle;
+    MockPriceOracle public oracle;
     MockERC20 public usdc;
     MockERC20 public eurc;
     MockERC20 public weth;
-    MockAggregator public usdcFeed;
-    MockAggregator public eurcFeed;
-    MockAggregator public ethFeed;
 
     address[3] public actors;
     address public immutable liquidator;
 
     constructor(
         LendingPool _pool,
-        PriceOracle _oracle,
+        MockPriceOracle _oracle,
         MockERC20 _usdc,
         MockERC20 _eurc,
         MockERC20 _weth,
-        MockAggregator _usdcFeed,
-        MockAggregator _eurcFeed,
-        MockAggregator _ethFeed,
         address[3] memory _actors,
         address _liquidator
     ) {
@@ -39,9 +32,6 @@ contract Handler is Test {
         usdc = _usdc;
         eurc = _eurc;
         weth = _weth;
-        usdcFeed = _usdcFeed;
-        eurcFeed = _eurcFeed;
-        ethFeed = _ethFeed;
         actors = _actors;
         liquidator = _liquidator;
 
@@ -192,7 +182,7 @@ contract Handler is Test {
         uint256 colTotBefore = pool.getTotalCollateral(col);
 
         vm.prank(liquidator);
-        try pool.liquidate(target, col, debt, amt) {
+        try pool.liquidate(target, col, debt, amt, 0) {
             // T-8: seized collateral leaves pool — both decrease by same amount
             uint256 deltaBalance = colBalBefore - MockERC20(col).balanceOf(address(pool));
             uint256 deltaTotal = colTotBefore - pool.getTotalCollateral(col);
@@ -203,11 +193,11 @@ contract Handler is Test {
     function movePrice(uint256 feedSeed, uint256 price) external {
         uint256 i = feedSeed % 3;
         if (i == 0) {
-            usdcFeed.setAnswer(int256(bound(price, 0.85e8, 1.15e8)));
+            oracle.setPrice(address(usdc), bound(price, 0.85e8, 1.15e8));
         } else if (i == 1) {
-            eurcFeed.setAnswer(int256(bound(price, 0.80e8, 1.50e8)));
+            oracle.setPrice(address(eurc), bound(price, 0.80e8, 1.50e8));
         } else {
-            ethFeed.setAnswer(int256(bound(price, 500e8, 6000e8)));
+            oracle.setPrice(address(weth), bound(price, 500e8, 6000e8));
         }
     }
 
