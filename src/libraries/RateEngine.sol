@@ -44,11 +44,7 @@ library RateEngine {
     /// @notice Kink rate model + FX risk premium. Returns the annualized borrow rate, in ray.
     /// @param utilizationRay utilization, in ray
     /// @param fxPremiumBps   FX premium for this currency pair, in bps (0 for standard mode)
-    function calculateBorrowRate(uint256 utilizationRay, uint16 fxPremiumBps)
-        internal
-        pure
-        returns (uint256)
-    {
+    function calculateBorrowRate(uint256 utilizationRay, uint16 fxPremiumBps) internal pure returns (uint256) {
         uint256 rate;
         if (utilizationRay <= KINK) {
             // base + (util/kink) × slope1
@@ -113,8 +109,7 @@ library RateEngine {
             // Supply side: supplyRate = rate × util × (1 − reserveFactor)
             uint256 supplyRate = calculateSupplyRate(rate, util, reserveFactorBps);
             uint256 liquidityFactor = RAY + (supplyRate * dt) / SECONDS_PER_YEAR;
-            reserve.liquidityIndex =
-                uint256(reserve.liquidityIndex).rayMul(liquidityFactor).toUint128();
+            reserve.liquidityIndex = uint256(reserve.liquidityIndex).rayMul(liquidityFactor).toUint128();
         }
 
         reserve.lastUpdateTimestamp = uint40(block.timestamp);

@@ -29,7 +29,8 @@ contract Deploy is Script {
     bytes32 internal constant ETHC = bytes32("ETH");
 
     function run() external {
-        uint256 pk = vm.envOr("PRIVATE_KEY", uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80));
+        uint256 pk =
+            vm.envOr("PRIVATE_KEY", uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80));
         address deployer = vm.addr(pk);
 
         vm.startBroadcast(pk);
@@ -44,7 +45,7 @@ contract Deploy is Script {
         MockERC20 weth = new MockERC20("Wrapped Ether", "WETH", 18);
 
         // ── 3. Prices (1e8 USD base) ──────────────────────────────
-        oracle.setPrice(address(usdc), 1.00e8);
+        oracle.setPrice(address(usdc), 1.0e8);
         oracle.setPrice(address(eurc), 1.08e8);
         oracle.setPrice(address(weth), 3000e8);
 
@@ -56,57 +57,57 @@ contract Deploy is Script {
         pool.configureAsset(
             address(usdc),
             DataTypes.AssetConfig({
-                configured:            true,
-                borrowable:            true,
-                decimals:              6,
-                ltv:                   7500,
-                liquidationThreshold:  8000,
-                liquidationBonus:      500,
-                reserveFactor:         1000,
-                fxPremium:             100,
-                currency:              USD,
-                oracle:                address(oracle),
-                borrowCap:             10_000_000e6,
-                collateralCap:         10_000_000e6,
-                depositCap:            0
+                configured: true,
+                borrowable: true,
+                decimals: 6,
+                ltv: 7500,
+                liquidationThreshold: 8000,
+                liquidationBonus: 500,
+                reserveFactor: 1000,
+                fxPremium: 100,
+                currency: USD,
+                oracle: address(oracle),
+                borrowCap: 10_000_000e6,
+                collateralCap: 10_000_000e6,
+                depositCap: 0
             })
         );
 
         pool.configureAsset(
             address(eurc),
             DataTypes.AssetConfig({
-                configured:            true,
-                borrowable:            true,
-                decimals:              6,
-                ltv:                   7500,
-                liquidationThreshold:  8000,
-                liquidationBonus:      500,
-                reserveFactor:         1000,
-                fxPremium:             200,
-                currency:              EUR,
-                oracle:                address(oracle),
-                borrowCap:             5_000_000e6,
-                collateralCap:         5_000_000e6,
-                depositCap:            0
+                configured: true,
+                borrowable: true,
+                decimals: 6,
+                ltv: 7500,
+                liquidationThreshold: 8000,
+                liquidationBonus: 500,
+                reserveFactor: 1000,
+                fxPremium: 200,
+                currency: EUR,
+                oracle: address(oracle),
+                borrowCap: 5_000_000e6,
+                collateralCap: 5_000_000e6,
+                depositCap: 0
             })
         );
 
         pool.configureAsset(
             address(weth),
             DataTypes.AssetConfig({
-                configured:            true,
-                borrowable:            true,
-                decimals:              18,
-                ltv:                   7500,
-                liquidationThreshold:  8000,
-                liquidationBonus:      750,
-                reserveFactor:         1000,
-                fxPremium:             0,
-                currency:              ETHC,
-                oracle:                address(oracle),
-                borrowCap:             1000e18,
-                collateralCap:         2000e18,
-                depositCap:            0
+                configured: true,
+                borrowable: true,
+                decimals: 18,
+                ltv: 7500,
+                liquidationThreshold: 8000,
+                liquidationBonus: 750,
+                reserveFactor: 1000,
+                fxPremium: 0,
+                currency: ETHC,
+                oracle: address(oracle),
+                borrowCap: 1000e18,
+                collateralCap: 2000e18,
+                depositCap: 0
             })
         );
 
@@ -114,18 +115,13 @@ contract Deploy is Script {
         pool.configureFxCategory(
             USD,
             EUR,
-            DataTypes.FxCategory({
-                enabled:               true,
-                ltv:                   9000,
-                liquidationThreshold:  9400,
-                liquidationBonus:      250
-            })
+            DataTypes.FxCategory({enabled: true, ltv: 9000, liquidationThreshold: 9400, liquidationBonus: 250})
         );
 
         // ── 7. Initial liquidity ──────────────────────────────────
-        uint256 usdcSeed = 1_000_000e6;   // 1,000,000 USDC
-        uint256 eurcSeed = 500_000e6;     // 500,000 EURC
-        uint256 wethSeed = 100e18;        // 100 WETH
+        uint256 usdcSeed = 1_000_000e6; // 1,000,000 USDC
+        uint256 eurcSeed = 500_000e6; // 500,000 EURC
+        uint256 wethSeed = 100e18; // 100 WETH
 
         usdc.mint(deployer, usdcSeed);
         eurc.mint(deployer, eurcSeed);

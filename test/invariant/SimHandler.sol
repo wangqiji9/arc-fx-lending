@@ -297,32 +297,33 @@ contract SimHandler is Test {
             // deposit should be intercepted by OraclePaused
             vm.prank(actor);
             try pool.deposit(asset, 1e6) {
-                // reaching here means pause did not block
-            } catch {
+            // reaching here means pause did not block
+            }
+            catch {
                 reverted = true;
             }
         } else if (op == 1) {
             // openPosition (col=asset) should be intercepted by OraclePaused
             address debt = asset == address(usdc) ? address(eurc) : address(usdc);
             vm.prank(actor);
-            try pool.openPosition(asset, 1e6, debt, 1e6) {
-            } catch {
+            try pool.openPosition(asset, 1e6, debt, 1e6) {}
+            catch {
                 reverted = true;
             }
         } else if (op == 2) {
             // borrow should be intercepted by OraclePaused (a nonexistent position reverts with PositionNotFound first, which also counts as reverted)
             address col = asset == address(usdc) ? address(weth) : address(usdc);
             vm.prank(actor);
-            try pool.borrow(col, asset, 1e6) {
-            } catch {
+            try pool.borrow(col, asset, 1e6) {}
+            catch {
                 reverted = true;
             }
         } else {
             // withdrawCollateral should be intercepted by OraclePaused (nonexistent position as above)
             address debt = asset == address(usdc) ? address(eurc) : address(usdc);
             vm.prank(actor);
-            try pool.withdrawCollateral(asset, debt, 1e6) {
-            } catch {
+            try pool.withdrawCollateral(asset, debt, 1e6) {}
+            catch {
                 reverted = true;
             }
         }
@@ -381,10 +382,7 @@ contract SimHandler is Test {
 
             // Check whether a bad-debt residual position resulted (collateral==0 && scaledDebt>0)
             DataTypes.Position memory posAfter = pool.getPosition(target, col, debt);
-            if (
-                posAfter.collateralAsset != address(0) && posAfter.collateralAmount == 0
-                    && posAfter.scaledDebt > 0
-            ) {
+            if (posAfter.collateralAsset != address(0) && posAfter.collateralAmount == 0 && posAfter.scaledDebt > 0) {
                 uint256 borrowBefore2 = pool.getReserveData(debt).totalScaledBorrow;
                 try pool.repayBadDebt(target, col, debt) {
                     ghost_badDebtRepaid++;
@@ -501,8 +499,11 @@ contract SimHandler is Test {
             );
             // Core: partial closeFactor — scaledDebt reduction ≤ 50% + 1 dust
             uint256 scaledDebtReduced = scaledDebtBefore - pool.getPosition(target, col, debt).scaledDebt;
-            assertLe(scaledDebtReduced, scaledDebtBefore / 2 + 1,
-                "boundaryCrash: closeFactor FULL triggered instead of PARTIAL");
+            assertLe(
+                scaledDebtReduced,
+                scaledDebtBefore / 2 + 1,
+                "boundaryCrash: closeFactor FULL triggered instead of PARTIAL"
+            );
             assertGt(scaledDebtReduced, 0, "boundaryCrash: liquidation repaid 0");
         }
 
@@ -518,7 +519,7 @@ contract SimHandler is Test {
         if (i == 0) {
             oracle.setPrice(address(usdc), bound(price, 0.85e8, 1.15e8));
         } else if (i == 1) {
-            oracle.setPrice(address(eurc), bound(price, 0.80e8, 1.50e8));
+            oracle.setPrice(address(eurc), bound(price, 0.8e8, 1.5e8));
         } else {
             oracle.setPrice(address(weth), bound(price, 500e8, 6000e8));
         }

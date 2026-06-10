@@ -11,17 +11,17 @@ import {MockERC20} from "../test/mocks/MockERC20.sol";
 /// @dev forge script script/Interact.s.sol --rpc-url http://localhost:8545 --broadcast -vv
 contract Interact is Script {
     // Deployed addresses from broadcast/Deploy.s.sol/31337/run-latest.json
-    LendingPool    constant pool     = LendingPool    (0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e);
-    MockPriceOracle constant oracle  = MockPriceOracle(0x5FbDB2315678afecb367f032d93F642f64180aa3);
-    MockERC20      constant usdc     = MockERC20      (0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0);
-    MockERC20      constant eurc     = MockERC20      (0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9);
-    MockERC20      constant weth     = MockERC20      (0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9);
+    LendingPool constant pool = LendingPool(0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e);
+    MockPriceOracle constant oracle = MockPriceOracle(0x5FbDB2315678afecb367f032d93F642f64180aa3);
+    MockERC20 constant usdc = MockERC20(0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0);
+    MockERC20 constant eurc = MockERC20(0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9);
+    MockERC20 constant weth = MockERC20(0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9);
 
     uint256 constant PK_DEPLOYER = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-    uint256 constant PK_ALICE    = 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d;
-    uint256 constant PK_BOB      = 0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a;
-    uint256 constant PK_CHARLIE  = 0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6;
-    uint256 constant PK_DAVE     = 0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a;
+    uint256 constant PK_ALICE = 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d;
+    uint256 constant PK_BOB = 0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a;
+    uint256 constant PK_CHARLIE = 0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6;
+    uint256 constant PK_DAVE = 0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a;
 
     address alice;
     address bob;
@@ -31,10 +31,10 @@ contract Interact is Script {
 
     function run() external {
         deployer = vm.addr(PK_DEPLOYER);
-        alice    = vm.addr(PK_ALICE);
-        bob      = vm.addr(PK_BOB);
-        charlie  = vm.addr(PK_CHARLIE);
-        dave     = vm.addr(PK_DAVE);
+        alice = vm.addr(PK_ALICE);
+        bob = vm.addr(PK_BOB);
+        charlie = vm.addr(PK_CHARLIE);
+        dave = vm.addr(PK_DAVE);
 
         console.log("=== arc-fx-lending interaction test ===");
         console.log("alice   :", alice);
@@ -245,10 +245,10 @@ contract Interact is Script {
     function _logReserve(address asset, string memory name) internal view {
         DataTypes.ReserveData memory r = pool.getReserveData(asset);
         uint256 supplied = (uint256(r.totalScaledSupply) * r.liquidityIndex) / RAY;
-        uint256 borrowed = (uint256(r.totalScaledBorrow) * r.borrowIndex)   / RAY;
-        uint256 cash     = asset == address(usdc) ? usdc.balanceOf(address(pool))
-                         : asset == address(eurc) ? eurc.balanceOf(address(pool))
-                         : weth.balanceOf(address(pool));
+        uint256 borrowed = (uint256(r.totalScaledBorrow) * r.borrowIndex) / RAY;
+        uint256 cash = asset == address(usdc)
+            ? usdc.balanceOf(address(pool))
+            : asset == address(eurc) ? eurc.balanceOf(address(pool)) : weth.balanceOf(address(pool));
         console.log("[RES] %s supplied=%d borrowed=%d", name, supplied, borrowed);
         console.log("      cash=%d", cash);
     }

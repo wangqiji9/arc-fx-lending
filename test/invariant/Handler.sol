@@ -95,9 +95,7 @@ contract Handler is Test {
                               borrowing side
     //////////////////////////////////////////////////////////////*/
 
-    function openPosition(uint256 actorSeed, uint256 pairSeed, uint256 colAmt, uint256 borrowAmt)
-        external
-    {
+    function openPosition(uint256 actorSeed, uint256 pairSeed, uint256 colAmt, uint256 borrowAmt) external {
         address actor = _actor(actorSeed);
         (address col, address debt) = _pair(pairSeed);
         colAmt = _colBound(col, colAmt);
@@ -195,7 +193,7 @@ contract Handler is Test {
         if (i == 0) {
             oracle.setPrice(address(usdc), bound(price, 0.85e8, 1.15e8));
         } else if (i == 1) {
-            oracle.setPrice(address(eurc), bound(price, 0.80e8, 1.50e8));
+            oracle.setPrice(address(eurc), bound(price, 0.8e8, 1.5e8));
         } else {
             oracle.setPrice(address(weth), bound(price, 500e8, 6000e8));
         }

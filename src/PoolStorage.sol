@@ -47,11 +47,7 @@ abstract contract PoolStorage {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Deterministic position key: unique per (owner, collateral, debt) triple. Delegates to Keys (single source of truth).
-    function positionKey(address owner, address collateralAsset, address debtAsset)
-        public
-        pure
-        returns (bytes32)
-    {
+    function positionKey(address owner, address collateralAsset, address debtAsset) public pure returns (bytes32) {
         return Keys.positionKey(owner, collateralAsset, debtAsset);
     }
 
@@ -68,11 +64,7 @@ abstract contract PoolStorage {
         return assetConfig[asset];
     }
 
-    function getFxCategory(bytes32 currencyA, bytes32 currencyB)
-        external
-        view
-        returns (DataTypes.FxCategory memory)
-    {
+    function getFxCategory(bytes32 currencyA, bytes32 currencyB) external view returns (DataTypes.FxCategory memory) {
         return fxCategories[pairKey(currencyA, currencyB)];
     }
 

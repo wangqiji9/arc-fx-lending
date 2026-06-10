@@ -25,12 +25,7 @@ contract MockAggregator is IAggregatorV3 {
         updatedAt = t;
     }
 
-    function latestRoundData()
-        external
-        view
-        override
-        returns (uint80, int256, uint256, uint256, uint80)
-    {
+    function latestRoundData() external view override returns (uint80, int256, uint256, uint256, uint80) {
         return (1, answer, updatedAt, updatedAt, 1);
     }
 }

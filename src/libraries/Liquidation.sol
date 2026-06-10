@@ -43,11 +43,7 @@ library Liquidation {
     /// @notice Calculates the final repay amount and seize amount.
     /// @return repayAmt actual debt to be repaid (debt native)
     /// @return seizeAmt collateral to be seized and given to the liquidator (col native)
-    function calcLiquidation(Params memory p)
-        internal
-        pure
-        returns (uint256 repayAmt, uint256 seizeAmt)
-    {
+    function calcLiquidation(Params memory p) internal pure returns (uint256 repayAmt, uint256 seizeAmt) {
         // 1. Dynamic close factor → maxRepay, capped by the requested amount
         uint256 maxRepay = (p.actualDebt * closeFactorBps(p.hf, p.isFx)) / BPS;
         repayAmt = p.requestedRepay < maxRepay ? p.requestedRepay : maxRepay;

@@ -168,12 +168,10 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
 
     /// @notice Open a new position or add collateral and borrow on an existing triplet
     ///         (deposit collateral + borrow in one step).
-    function openPosition(
-        address collateralAsset,
-        uint256 collateralAmount,
-        address debtAsset,
-        uint256 borrowAmount
-    ) external nonReentrant {
+    function openPosition(address collateralAsset, uint256 collateralAmount, address debtAsset, uint256 borrowAmount)
+        external
+        nonReentrant
+    {
         _requireConfigured(collateralAsset);
         _requireConfigured(debtAsset);
         if (collateralAsset == debtAsset) revert SameAsset();
@@ -185,8 +183,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
 
         // collateralCap
         DataTypes.AssetConfig storage colCfg = assetConfig[collateralAsset];
-        if (colCfg.collateralCap != 0 && totalCollateral[collateralAsset] + collateralAmount > colCfg.collateralCap)
-        {
+        if (colCfg.collateralCap != 0 && totalCollateral[collateralAsset] + collateralAmount > colCfg.collateralCap) {
             revert CollateralCapExceeded(collateralAsset);
         }
 
@@ -214,10 +211,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
     }
 
     /// @notice Borrow additional debt against an existing position (collateral already in position).
-    function borrow(address collateralAsset, address debtAsset, uint256 borrowAmount)
-        external
-        nonReentrant
-    {
+    function borrow(address collateralAsset, address debtAsset, uint256 borrowAmount) external nonReentrant {
         if (borrowAmount == 0) revert InvalidAmount();
         if (oracle.isPaused(collateralAsset) || oracle.isPaused(debtAsset)) revert OraclePaused(debtAsset);
 
@@ -238,18 +232,14 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
 
     /// @notice Add collateral to an existing position (monotonically improves HF;
     ///         no HF check needed, no index update needed).
-    function addCollateral(address collateralAsset, address debtAsset, uint256 amount)
-        external
-        nonReentrant
-    {
+    function addCollateral(address collateralAsset, address debtAsset, uint256 amount) external nonReentrant {
         if (amount == 0) revert InvalidAmount();
         bytes32 key = Keys.positionKey(msg.sender, collateralAsset, debtAsset);
         DataTypes.Position storage pos = positions[key];
         if (pos.collateralAsset == address(0)) revert PositionNotFound(key);
 
         DataTypes.AssetConfig storage colCfg = assetConfig[collateralAsset];
-        if (colCfg.collateralCap != 0 && totalCollateral[collateralAsset] + amount > colCfg.collateralCap)
-        {
+        if (colCfg.collateralCap != 0 && totalCollateral[collateralAsset] + amount > colCfg.collateralCap) {
             revert CollateralCapExceeded(collateralAsset);
         }
 
@@ -261,10 +251,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
     }
 
     /// @notice Withdraw part of the collateral (risk-increasing operation → effect-then-verify HF post-check).
-    function withdrawCollateral(address collateralAsset, address debtAsset, uint256 amount)
-        external
-        nonReentrant
-    {
+    function withdrawCollateral(address collateralAsset, address debtAsset, uint256 amount) external nonReentrant {
         if (amount == 0) revert InvalidAmount();
         if (oracle.isPaused(collateralAsset) || oracle.isPaused(debtAsset)) revert OraclePaused(collateralAsset);
         bytes32 key = Keys.positionKey(msg.sender, collateralAsset, debtAsset);
@@ -353,9 +340,8 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         DataTypes.RiskParams memory params =
             RiskEngine.resolveParams(assetConfig, fxCategories, collateralAsset, debtAsset);
         // Liquidation eligibility uses LT (liquidationThreshold)
-        uint256 hf = RiskEngine.calculateHealthFactor(
-            pos, params.liquidationThreshold, r.borrowIndex, oracle, assetConfig
-        );
+        uint256 hf =
+            RiskEngine.calculateHealthFactor(pos, params.liquidationThreshold, r.borrowIndex, oracle, assetConfig);
         if (hf >= WAD) revert PositionHealthy(hf);
 
         uint256 actualDebt = RiskEngine.debtOf(pos.scaledDebt, r.borrowIndex);
@@ -506,8 +492,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
                 address debt = assets[j];
                 if (!_isValidMarket(col, debt)) continue;
 
-                DataTypes.RiskParams memory p =
-                    RiskEngine.resolveParams(assetConfig, fxCategories, col, debt);
+                DataTypes.RiskParams memory p = RiskEngine.resolveParams(assetConfig, fxCategories, col, debt);
                 (uint256 debtBorrowRate,) = viewRates(debt);
 
                 markets[k++] = AgentTypes.MarketInfo({
@@ -543,8 +528,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         uint256 borrowIndex = reserves[debt].borrowIndex;
 
         DataTypes.RiskParams memory p = RiskEngine.resolveParams(assetConfig, fxCategories, col, debt);
-        uint256 hf =
-            RiskEngine.calculateHealthFactor(pos, p.liquidationThreshold, borrowIndex, oracle, assetConfig);
+        uint256 hf = RiskEngine.calculateHealthFactor(pos, p.liquidationThreshold, borrowIndex, oracle, assetConfig);
 
         risk.healthFactor = hf;
         risk.bufferBps = _bufferBps(hf);
@@ -592,12 +576,11 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
     ///      reverts. borrowRate is computed at the POST-open utilization (the rate the agent will pay
     ///      after borrowing), not the current one. Reverts only on misconfiguration (unconfigured /
     ///      same-asset); an unhealthy or illiquid request returns openable = false rather than reverting.
-    function previewPosition(
-        address collateralAsset,
-        uint256 collateralAmount,
-        address debtAsset,
-        uint256 borrowAmount
-    ) external view returns (AgentTypes.PreviewResult memory res) {
+    function previewPosition(address collateralAsset, uint256 collateralAmount, address debtAsset, uint256 borrowAmount)
+        external
+        view
+        returns (AgentTypes.PreviewResult memory res)
+    {
         _requireConfigured(collateralAsset);
         _requireConfigured(debtAsset);
         if (collateralAsset == debtAsset) revert SameAsset();
@@ -613,12 +596,10 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
             scaledDebt: ((borrowAmount * RAY + borrowIndex - 1) / borrowIndex).toUint128()
         });
 
-        DataTypes.RiskParams memory p =
-            RiskEngine.resolveParams(assetConfig, fxCategories, collateralAsset, debtAsset);
+        DataTypes.RiskParams memory p = RiskEngine.resolveParams(assetConfig, fxCategories, collateralAsset, debtAsset);
 
         uint256 ltvHf = RiskEngine.calculateHealthFactor(pos, p.ltv, borrowIndex, oracle, assetConfig);
-        uint256 ltHf =
-            RiskEngine.calculateHealthFactor(pos, p.liquidationThreshold, borrowIndex, oracle, assetConfig);
+        uint256 ltHf = RiskEngine.calculateHealthFactor(pos, p.liquidationThreshold, borrowIndex, oracle, assetConfig);
 
         res.healthFactor = ltHf;
         res.ltvHealthFactor = ltvHf;
@@ -695,11 +676,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
 
     /// @notice Utilization if `extraBorrow` more debt were drawn now (for previewPosition's post-open rate).
     /// @dev Mirrors RateEngine.utilization but adds extraBorrow to the debt side at the current index.
-    function _utilizationWithExtraBorrow(address asset, uint256 extraBorrow)
-        internal
-        view
-        returns (uint256)
-    {
+    function _utilizationWithExtraBorrow(address asset, uint256 extraBorrow) internal view returns (uint256) {
         DataTypes.ReserveData storage r = reserves[asset];
         uint256 totalSupply = (uint256(r.totalScaledSupply) * r.liquidityIndex) / RAY;
         if (totalSupply == 0) return 0;
@@ -724,8 +701,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
     function _refreshRate(address asset) internal {
         DataTypes.ReserveData storage r = reserves[asset];
         uint256 util = r.utilization();
-        r.currentBorrowRate =
-            RateEngine.calculateBorrowRate(util, assetConfig[asset].fxPremium).toUint128();
+        r.currentBorrowRate = RateEngine.calculateBorrowRate(util, assetConfig[asset].fxPremium).toUint128();
         emit ReserveDataUpdated(asset, r.liquidityIndex, r.borrowIndex, r.currentBorrowRate);
     }
 

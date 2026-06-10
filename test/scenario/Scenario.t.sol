@@ -104,8 +104,7 @@ contract ScenarioTest is BaseTest {
         vm.prank(bob);
         pool.openPosition(address(weth), 1e18, address(usdc), 2_200e6);
 
-        DataTypes.Position memory posBefore =
-            pool.getPosition(bob, address(weth), address(usdc));
+        DataTypes.Position memory posBefore = pool.getPosition(bob, address(weth), address(usdc));
         assertEq(posBefore.collateralAmount, 1e18, "initial collateral");
 
         // ── ETH crashes to $1000 -> position is severely undercollateralized ──
@@ -130,8 +129,7 @@ contract ScenarioTest is BaseTest {
         assertLt(usdcPaid, 2_200e6, "liquidator paid less than full debt (bad debt scenario)");
 
         // ── Position now has 0 collateral but remaining debt (bad debt) ───────
-        DataTypes.Position memory posAfterLiquidation =
-            pool.getPosition(bob, address(weth), address(usdc));
+        DataTypes.Position memory posAfterLiquidation = pool.getPosition(bob, address(weth), address(usdc));
         assertEq(posAfterLiquidation.collateralAmount, 0, "collateral fully seized");
         assertGt(posAfterLiquidation.scaledDebt, 0, "residual bad debt remains");
 
@@ -180,7 +178,7 @@ contract ScenarioTest is BaseTest {
         // ── EURC appreciates from $1.08 -> $1.20 ──────────────────────────────
         // At $1.20: debtValue = 800 * 1.20e8 = 960e8, riskAdjColl = 1000e8 * 94% = 940e8
         // HF = 940/960 ≈ 0.979 WAD < 1 -> liquidatable
-        oracle.setPrice(address(eurc), 1.20e8);
+        oracle.setPrice(address(eurc), 1.2e8);
 
         uint256 hfAfter = pool.getHealthFactor(bob, address(usdc), address(eurc));
         assertLt(hfAfter, 1e18, "HF must be below 1 after EURC appreciation");

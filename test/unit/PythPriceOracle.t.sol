@@ -17,8 +17,7 @@ contract PythPriceOracleTest is Test {
     address internal attacker = makeAddr("attacker");
 
     // ETH/USD price id (same value across all chains)
-    bytes32 internal constant ETH_USD =
-        0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace;
+    bytes32 internal constant ETH_USD = 0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace;
 
     function setUp() public {
         pyth = new MockPyth();

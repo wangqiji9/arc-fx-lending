@@ -21,8 +21,8 @@ contract MultiPositionTest is BaseTest {
         _fund(usdc, alice, 1_000e6);
 
         vm.startPrank(alice);
-        pool.openPosition(address(weth), 1e18, address(usdc), 1_000e6);   // Standard
-        pool.openPosition(address(usdc), 1_000e6, address(eurc), 500e6);   // FX E-Mode
+        pool.openPosition(address(weth), 1e18, address(usdc), 1_000e6); // Standard
+        pool.openPosition(address(usdc), 1_000e6, address(eurc), 500e6); // FX E-Mode
         vm.stopPrank();
 
         bytes32[] memory keys = pool.getUserPositionKeys(alice);

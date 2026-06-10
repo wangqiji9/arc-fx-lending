@@ -129,7 +129,7 @@ contract LiquidationRepayTest is BaseTest {
 
     function test_liquidate_partial_closeFactor50() public {
         _openEthPosition();
-        oracle.setPrice(address(weth),2490e8); // HF = 0.996 ∈ [0.98,1) → close factor 50%
+        oracle.setPrice(address(weth), 2490e8); // HF = 0.996 ∈ [0.98,1) → close factor 50%
 
         uint256 liqUsdcBefore = usdc.balanceOf(liquidator);
         vm.prank(liquidator);
@@ -148,7 +148,7 @@ contract LiquidationRepayTest is BaseTest {
 
     function test_liquidate_full_closeFactor100() public {
         _openEthPosition();
-        oracle.setPrice(address(weth),2400e8); // HF = 0.96 < 0.98 → close factor 100%
+        oracle.setPrice(address(weth), 2400e8); // HF = 0.96 < 0.98 → close factor 100%
 
         vm.prank(liquidator);
         pool.liquidate(bob, address(weth), address(usdc), 5_000e6, 0);
@@ -164,7 +164,7 @@ contract LiquidationRepayTest is BaseTest {
     /// @notice Core fix #1: when collateral is insufficient, reverse-compute repay — liquidator pays for actual collateral received, remaining profitable.
     function test_liquidate_reverseCompute_badDebt() public {
         _openEthPosition();
-        oracle.setPrice(address(weth),1800e8); // HF = 0.72, collateral < debt×(1+bonus) → triggers reverse-compute
+        oracle.setPrice(address(weth), 1800e8); // HF = 0.72, collateral < debt×(1+bonus) → triggers reverse-compute
 
         uint256 liqUsdcBefore = usdc.balanceOf(liquidator);
         vm.prank(liquidator);
@@ -189,7 +189,7 @@ contract LiquidationRepayTest is BaseTest {
 
     function test_liquidate_revertsWhenOraclePaused() public {
         _openEthPosition();
-        oracle.setPrice(address(weth),2400e8);
+        oracle.setPrice(address(weth), 2400e8);
         oracle.setPaused(address(weth), true);
 
         vm.prank(liquidator);
@@ -205,7 +205,7 @@ contract LiquidationRepayTest is BaseTest {
     function test_repayBadDebt_clearsResidual() public {
         // first create a bad-debt residual position
         _openEthPosition();
-        oracle.setPrice(address(weth),1800e8);
+        oracle.setPrice(address(weth), 1800e8);
         vm.prank(liquidator);
         pool.liquidate(bob, address(weth), address(usdc), 5_000e6, 0);
 
@@ -223,7 +223,7 @@ contract LiquidationRepayTest is BaseTest {
     function test_repayBadDebt_revert_stillCollateralized() public {
         // partial liquidation still leaves collateral → bad-debt recapitalization not allowed
         _openEthPosition();
-        oracle.setPrice(address(weth),2400e8);
+        oracle.setPrice(address(weth), 2400e8);
         vm.prank(liquidator);
         pool.liquidate(bob, address(weth), address(usdc), 5_000e6, 0); // 100% debt cleared but collateral remains
 
@@ -235,7 +235,7 @@ contract LiquidationRepayTest is BaseTest {
 
     function test_repayBadDebt_revert_notAuthorized() public {
         _openEthPosition();
-        oracle.setPrice(address(weth),1800e8);
+        oracle.setPrice(address(weth), 1800e8);
         vm.prank(liquidator);
         pool.liquidate(bob, address(weth), address(usdc), 5_000e6, 0);
 
@@ -262,7 +262,7 @@ contract LiquidationRepayTest is BaseTest {
     /// @notice EURC appreciates: HF ∈ [0.98,1) → close factor 50%, liquidator repays 400 EURC and receives ~485 USDC.
     function test_fx_liquidate_partial_closeFactor50() public {
         _openFxPosition();
-        oracle.setPrice(address(eurc),1.185e8); // HF_LT = 940/948 = 0.9916 ∈ [0.98,1)
+        oracle.setPrice(address(eurc), 1.185e8); // HF_LT = 940/948 = 0.9916 ∈ [0.98,1)
 
         uint256 liqUsdcBefore = usdc.balanceOf(liquidator);
         uint256 liqEurcBefore = eurc.balanceOf(liquidator);
@@ -287,7 +287,7 @@ contract LiquidationRepayTest is BaseTest {
     /// @notice EURC appreciates sharply: HF < 0.98 → close factor 100%, collateral insufficient → reverse-compute triggers.
     function test_fx_liquidate_full_reverseCompute() public {
         _openFxPosition();
-        oracle.setPrice(address(eurc),1.25e8); // HF_LT = 940/1000 = 0.94 < 0.98 → full position
+        oracle.setPrice(address(eurc), 1.25e8); // HF_LT = 940/1000 = 0.94 < 0.98 → full position
 
         uint256 liqUsdcBefore = usdc.balanceOf(liquidator);
         uint256 liqEurcBefore = eurc.balanceOf(liquidator);
@@ -367,7 +367,7 @@ contract LiquidationRepayTest is BaseTest {
         vm.prank(alice);
         pool.openPosition(address(weth), 1e18, address(usdc), 2_249e6);
 
-        oracle.setPrice(address(weth),2755e8); // collValue×0.80 = 2204e8, HF = 2204/2249 = 0.9799 < 0.98
+        oracle.setPrice(address(weth), 2755e8); // collValue×0.80 = 2204e8, HF = 2204/2249 = 0.9799 < 0.98
         vm.prank(liquidator);
         pool.liquidate(alice, address(weth), address(usdc), 5_000e6, 0);
 
@@ -380,7 +380,7 @@ contract LiquidationRepayTest is BaseTest {
         vm.prank(alice);
         pool.openPosition(address(weth), 1e18, address(usdc), 2_249e6);
 
-        oracle.setPrice(address(weth),2756e8); // collValue×0.80 = 2204.8e8, HF = 2204.8/2249 = 0.9803 ≥ 0.98
+        oracle.setPrice(address(weth), 2756e8); // collValue×0.80 = 2204.8e8, HF = 2204.8/2249 = 0.9803 ≥ 0.98
         vm.prank(liquidator);
         pool.liquidate(alice, address(weth), address(usdc), 5_000e6, 0);
 

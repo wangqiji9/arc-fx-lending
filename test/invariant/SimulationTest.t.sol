@@ -47,15 +47,7 @@ contract SimulationTest is BaseTest {
 
         assetList = [address(usdc), address(eurc), address(weth)];
 
-        handler = new SimHandler(
-            pool,
-            oracle,
-            usdc,
-            eurc,
-            weth,
-            actorList,
-            makeAddr("sim_liquidator")
-        );
+        handler = new SimHandler(pool, oracle, usdc, eurc, weth, actorList, makeAddr("sim_liquidator"));
 
         // handler acts as insuranceFund so it can call repayBadDebt
         pool.setInsuranceFund(address(handler));
@@ -123,11 +115,7 @@ contract SimulationTest is BaseTest {
     function invariant_solvency_collateralBacked() public view {
         for (uint256 i = 0; i < assetList.length; i++) {
             address a = assetList[i];
-            assertGe(
-                IERC20Min(a).balanceOf(address(pool)),
-                pool.getTotalCollateral(a),
-                "balance < totalCollateral"
-            );
+            assertGe(IERC20Min(a).balanceOf(address(pool)), pool.getTotalCollateral(a), "balance < totalCollateral");
         }
     }
 
@@ -180,11 +168,7 @@ contract SimulationTest is BaseTest {
     ///      Reason for not asserting inside the handler body: a failed assertTrue makes the handler revert,
     ///      and fail_on_revert=false silently swallows that revert, rendering the assertion useless.
     function invariant_oraclePauseAlwaysBlocks() public view {
-        assertEq(
-            handler.ghost_pauseGateMissed(),
-            0,
-            "oracle pause gate: operation succeeded while oracle was paused"
-        );
+        assertEq(handler.ghost_pauseGateMissed(), 0, "oracle pause gate: operation succeeded while oracle was paused");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -220,10 +204,7 @@ contract SimulationTest is BaseTest {
             // ① every key in the set must point to a non-empty position
             for (uint256 k = 0; k < keys.length; k++) {
                 DataTypes.Position memory pos = pool.getPosition(keys[k]);
-                assertTrue(
-                    pos.collateralAsset != address(0),
-                    "ghost key: key in userPositionKeys but position deleted"
-                );
+                assertTrue(pos.collateralAsset != address(0), "ghost key: key in userPositionKeys but position deleted");
             }
 
             // ② every non-empty position's key must be in the set

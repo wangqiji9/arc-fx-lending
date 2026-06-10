@@ -182,8 +182,7 @@ contract AgentViewsTest is BaseTest {
     //////////////////////////////////////////////////////////////*/
 
     function test_previewPosition_matchesRealOpen() public {
-        AgentTypes.PreviewResult memory pre =
-            pool.previewPosition(address(weth), 10e18, address(usdc), 15_000e6);
+        AgentTypes.PreviewResult memory pre = pool.previewPosition(address(weth), 10e18, address(usdc), 15_000e6);
 
         assertTrue(pre.openable, "preview says openable");
         assertGt(pre.ltvHealthFactor, WAD, "LTV HF > 1");
@@ -199,16 +198,14 @@ contract AgentViewsTest is BaseTest {
 
     function test_previewPosition_unhealthyNotOpenable() public view {
         // Borrow far beyond LTV: 10 ETH = $30k, LTV 75% -> max ~$22.5k. Ask for $25k.
-        AgentTypes.PreviewResult memory pre =
-            pool.previewPosition(address(weth), 10e18, address(usdc), 25_000e6);
+        AgentTypes.PreviewResult memory pre = pool.previewPosition(address(weth), 10e18, address(usdc), 25_000e6);
         assertFalse(pre.openable, "over-LTV -> not openable");
         assertLt(pre.ltvHealthFactor, WAD, "LTV HF < 1");
     }
 
     function test_previewPosition_illiquidNotOpenable() public view {
         // Request more USDC than is available (deposit is 1_000_000e6).
-        AgentTypes.PreviewResult memory pre =
-            pool.previewPosition(address(weth), 10_000e18, address(usdc), 2_000_000e6);
+        AgentTypes.PreviewResult memory pre = pool.previewPosition(address(weth), 10_000e18, address(usdc), 2_000_000e6);
         assertFalse(pre.openable, "insufficient liquidity -> not openable");
     }
 
@@ -259,12 +256,8 @@ contract AgentViewsTest is BaseTest {
 
         // Batch: addCollateral(+10 ETH) then borrow(+10_000 USDC) in one atomic call.
         bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(
-            LendingPool.addCollateral, (address(weth), address(usdc), 10e18)
-        );
-        calls[1] = abi.encodeCall(
-            LendingPool.borrow, (address(weth), address(usdc), 10_000e6)
-        );
+        calls[0] = abi.encodeCall(LendingPool.addCollateral, (address(weth), address(usdc), 10e18));
+        calls[1] = abi.encodeCall(LendingPool.borrow, (address(weth), address(usdc), 10_000e6));
 
         vm.prank(bob);
         pool.multicall(calls);

@@ -107,12 +107,7 @@ abstract contract BaseTest is Test {
         pool.configureFxCategory(
             USD,
             EUR,
-            DataTypes.FxCategory({
-                enabled: true,
-                ltv: 9000,
-                liquidationThreshold: 9400,
-                liquidationBonus: 250
-            })
+            DataTypes.FxCategory({enabled: true, ltv: 9000, liquidationThreshold: 9400, liquidationBonus: 250})
         );
     }
 

@@ -72,7 +72,9 @@ library RiskEngine {
         IPriceOracle oracle,
         mapping(address => DataTypes.AssetConfig) storage assetConfig
     ) internal view returns (uint256) {
-        if (position.scaledDebt == 0) return type(uint256).max;
+        if (position.scaledDebt == 0) {
+            return type(uint256).max;
+        }
 
         uint256 collPrice = oracle.getPrice(position.collateralAsset);
         uint256 debtPrice = oracle.getPrice(position.debtAsset);

@@ -132,15 +132,9 @@ event Deposited(address indexed asset, address indexed user, uint256 amount, uin
 event Withdrawn(address indexed asset, address indexed user, uint256 amount, uint256 scaledAmount);
 
 // Borrow side
-event Borrowed(
-    address indexed user, address indexed collateralAsset, address indexed debtAsset, uint256 amount
-);
-event Repaid(
-    address indexed payer, address indexed owner, address indexed debtAsset, uint256 amount
-);
-event CollateralAdded(
-    address indexed user, address indexed collateralAsset, address indexed debtAsset, uint256 amount
-);
+event Borrowed(address indexed user, address indexed collateralAsset, address indexed debtAsset, uint256 amount);
+event Repaid(address indexed payer, address indexed owner, address indexed debtAsset, uint256 amount);
+event CollateralAdded(address indexed user, address indexed collateralAsset, address indexed debtAsset, uint256 amount);
 event CollateralWithdrawn(
     address indexed user, address indexed collateralAsset, address indexed debtAsset, uint256 amount
 );
@@ -157,6 +151,4 @@ event Liquidated(
 );
 
 // Interest rate / index
-event ReserveDataUpdated(
-    address indexed asset, uint256 liquidityIndex, uint256 borrowIndex, uint256 borrowRate
-);
+event ReserveDataUpdated(address indexed asset, uint256 liquidityIndex, uint256 borrowIndex, uint256 borrowRate);

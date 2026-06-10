@@ -9,8 +9,8 @@ import {StalePrice, InvalidPrice, FeedNotSet, NotAuthorized} from "../../src/lib
 /// @notice T-4: ChainlinkPriceOracle unit tests — staleness / InvalidPrice / decimal normalization / guardian authorization.
 contract PriceOracleTest is Test {
     ChainlinkPriceOracle internal oracle;
-    MockAggregator internal feed8;  // 8-decimal feed (standard)
-    MockAggregator internal feed6;  // 6-decimal feed (low precision)
+    MockAggregator internal feed8; // 8-decimal feed (standard)
+    MockAggregator internal feed6; // 6-decimal feed (low precision)
     MockAggregator internal feed18; // 18-decimal feed (high precision)
 
     address internal asset = makeAddr("asset");
@@ -21,9 +21,9 @@ contract PriceOracleTest is Test {
         oracle = new ChainlinkPriceOracle(address(this));
         oracle.setGuardian(guardian);
 
-        feed8  = new MockAggregator(8, 1e8);    // $1.00, 8 decimals
-        feed6  = new MockAggregator(6, 1e6);    // $1.00 in 6 decimals
-        feed18 = new MockAggregator(18, 1e18);  // $1.00 in 18 decimals
+        feed8 = new MockAggregator(8, 1e8); // $1.00, 8 decimals
+        feed6 = new MockAggregator(6, 1e6); // $1.00 in 6 decimals
+        feed18 = new MockAggregator(18, 1e18); // $1.00 in 18 decimals
     }
 
     /*//////////////////////////////////////////////////////////////

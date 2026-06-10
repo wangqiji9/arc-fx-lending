@@ -26,8 +26,8 @@ contract MockFeeToken is ERC20 {
     function _update(address from, address to, uint256 amount) internal override {
         if (from != address(0) && to != address(0)) {
             uint256 fee = amount * FEE_BPS / 10_000;
-            super._update(from, address(0), fee);       // burn fee
-            super._update(from, to, amount - fee);      // deliver rest
+            super._update(from, address(0), fee); // burn fee
+            super._update(from, to, amount - fee); // deliver rest
         } else {
             super._update(from, to, amount);
         }

@@ -8,9 +8,7 @@ contract MockPyth is IPyth {
     mapping(bytes32 id => Price) internal prices;
 
     /// @notice Set the full Price tuple for a feed id.
-    function setPrice(bytes32 id, int64 price, uint64 conf, int32 expo, uint256 publishTime)
-        external
-    {
+    function setPrice(bytes32 id, int64 price, uint64 conf, int32 expo, uint256 publishTime) external {
         prices[id] = Price({price: price, conf: conf, expo: expo, publishTime: publishTime});
     }
 

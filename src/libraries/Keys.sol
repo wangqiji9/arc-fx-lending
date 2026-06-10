@@ -5,11 +5,7 @@ pragma solidity 0.8.24;
 /// @dev Both PoolStorage and RiskEngine import this library, preventing mismatches from two independent implementations diverging.
 library Keys {
     /// @notice Position key: unique for each (owner, collateral, debt) triple.
-    function positionKey(address owner, address collateralAsset, address debtAsset)
-        internal
-        pure
-        returns (bytes32)
-    {
+    function positionKey(address owner, address collateralAsset, address debtAsset) internal pure returns (bytes32) {
         return keccak256(abi.encode(owner, collateralAsset, debtAsset));
     }
 

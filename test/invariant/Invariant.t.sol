@@ -19,9 +19,7 @@ contract InvariantTest is BaseTest {
         actorList = [makeAddr("inv_a"), makeAddr("inv_b"), makeAddr("inv_c")];
         assetList = [address(usdc), address(eurc), address(weth)];
 
-        handler = new Handler(
-            pool, oracle, usdc, eurc, weth, actorList, makeAddr("inv_liq")
-        );
+        handler = new Handler(pool, oracle, usdc, eurc, weth, actorList, makeAddr("inv_liq"));
 
         targetContract(address(handler));
     }
@@ -83,9 +81,7 @@ contract InvariantTest is BaseTest {
         for (uint256 i = 0; i < assetList.length; i++) {
             address a = assetList[i];
             assertGe(
-                BaseTest_token(a).balanceOf(address(pool)),
-                pool.getTotalCollateral(a),
-                "balance covers collateral"
+                BaseTest_token(a).balanceOf(address(pool)), pool.getTotalCollateral(a), "balance covers collateral"
             );
         }
     }
