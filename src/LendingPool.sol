@@ -82,6 +82,12 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
     ///         and adds the asset to reservesList.
     function configureAsset(address asset, DataTypes.AssetConfig calldata cfg) external onlyOwner {
         if (asset == address(0)) revert ZeroAddress();
+        // Settle elapsed interest at the OLD reserveFactor before overwriting config. updateIndexes()
+        // applies reserveFactor over the whole dt since lastUpdateTimestamp, so without this the new
+        // reserveFactor would be applied retroactively to interest already earned under the old one
+        // (silently reallocating value between the protocol reserve and lenders). Skipped on first
+        // configuration (index still 0 → reserve not initialized yet, nothing to accrue).
+        if (reserves[asset].liquidityIndex != 0) _accrue(asset);
         assetConfig[asset] = cfg;
         assetConfig[asset].configured = true; // force-set to avoid admin accidentally leaving it unset
 
@@ -182,8 +188,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         _accrue(debtAsset);
 
         // collateralCap
-        DataTypes.AssetConfig storage colCfg = assetConfig[collateralAsset];
-        if (colCfg.collateralCap != 0 && totalCollateral[collateralAsset] + collateralAmount > colCfg.collateralCap) {
+        if (!_withinCollateralCap(collateralAsset, collateralAmount)) {
             revert CollateralCapExceeded(collateralAsset);
         }
 
@@ -238,10 +243,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         DataTypes.Position storage pos = positions[key];
         if (pos.collateralAsset == address(0)) revert PositionNotFound(key);
 
-        DataTypes.AssetConfig storage colCfg = assetConfig[collateralAsset];
-        if (colCfg.collateralCap != 0 && totalCollateral[collateralAsset] + amount > colCfg.collateralCap) {
-            revert CollateralCapExceeded(collateralAsset);
-        }
+        if (!_withinCollateralCap(collateralAsset, amount)) revert CollateralCapExceeded(collateralAsset);
 
         pos.collateralAmount += amount.toUint128(); // E
         totalCollateral[collateralAsset] += amount;
@@ -608,7 +610,12 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
 
         uint256 avail = _availableLiquidity(debtAsset);
         res.availableLiquidity = avail;
-        res.openable = ltvHf >= WAD && borrowAmount <= avail && assetConfig[debtAsset].borrowable;
+        // openable mirrors EVERY gate the on-chain openPosition enforces, so the agent never gets
+        // openable=true on a call that would revert: LTV health, liquidity, borrowable flag, oracle
+        // pause (both legs), borrowCap and collateralCap. Missing any of these would let preview lie.
+        res.openable = ltvHf >= WAD && borrowAmount <= avail && assetConfig[debtAsset].borrowable
+            && !oracle.isPaused(collateralAsset) && !oracle.isPaused(debtAsset)
+            && _withinBorrowCap(debtAsset, borrowAmount) && _withinCollateralCap(collateralAsset, collateralAmount);
 
         bool hasDebt = borrowAmount != 0;
         res.liquidationPriceApplicable = hasDebt && !p.isFx;
@@ -647,6 +654,24 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         uint256 bal = IERC20(asset).balanceOf(address(this));
         uint256 locked = totalCollateral[asset];
         return bal > locked ? bal - locked : 0;
+    }
+
+    /// @notice True if borrowing `amount` of `debtAsset` stays within borrowCap (0 = uncapped).
+    ///         Single source of truth shared by _drawDebt (enforcement) and previewPosition (preview).
+    function _withinBorrowCap(address debtAsset, uint256 amount) internal view returns (bool) {
+        DataTypes.AssetConfig storage cfg = assetConfig[debtAsset];
+        if (cfg.borrowCap == 0) return true;
+        DataTypes.ReserveData storage r = reserves[debtAsset];
+        uint256 totalDebt = (uint256(r.totalScaledBorrow) * r.borrowIndex) / RAY;
+        return totalDebt + amount <= cfg.borrowCap;
+    }
+
+    /// @notice True if adding `amount` of `collateralAsset` stays within collateralCap (0 = uncapped).
+    ///         Single source of truth shared by openPosition/addCollateral and previewPosition.
+    function _withinCollateralCap(address collateralAsset, uint256 amount) internal view returns (bool) {
+        DataTypes.AssetConfig storage cfg = assetConfig[collateralAsset];
+        if (cfg.collateralCap == 0) return true;
+        return totalCollateral[collateralAsset] + amount <= cfg.collateralCap;
     }
 
     /// @notice Relative safety buffer in bps = (HF − 1e18) × BPS / 1e18; 0 when HF ≤ 1e18.
@@ -713,10 +738,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         DataTypes.ReserveData storage r = reserves[debtAsset];
 
         // borrowCap (in underlying terms)
-        if (cfg.borrowCap != 0) {
-            uint256 totalDebt = (uint256(r.totalScaledBorrow) * r.borrowIndex) / RAY;
-            if (totalDebt + borrowAmount > cfg.borrowCap) revert BorrowCapExceeded(debtAsset);
-        }
+        if (!_withinBorrowCap(debtAsset, borrowAmount)) revert BorrowCapExceeded(debtAsset);
 
         // Lender liquidity check: borrowable = balanceOf − locked collateral
         uint256 available = IERC20(debtAsset).balanceOf(address(this)) - totalCollateral[debtAsset];
