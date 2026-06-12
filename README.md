@@ -127,6 +127,36 @@ Test coverage includes:
 
 ---
 
+## Frontend
+
+A Next.js 14 interface for interacting with the protocol on Arc Testnet.
+
+```shell
+cd frontend
+cp .env.local.example .env.local   # fill in contract addresses + WalletConnect ID
+npm install
+npm run dev
+```
+
+| Page | Path | Description |
+|------|------|-------------|
+| Markets | `/` | Available (collateral, debt) pairs — FX E-Mode and Standard; protocol TVL/borrow stats |
+| Lend | `/lend` | Deposit / withdraw liquidity; real-time supply APY |
+| Borrow | `/borrow` | Open isolated positions with `previewPosition` simulation before executing |
+| Positions | `/positions` | Manage open positions — health factor, add collateral, repay, withdraw |
+
+Stack: Next.js 14 · wagmi v2 · viem · TailwindCSS · WalletConnect
+
+---
+
+## Changelog
+
+- **2026-06-12** — Add Next.js frontend (markets, lend, borrow, positions); Arc Testnet deployment and multi-account seed scenarios verified on-chain.
+- **2026-06-11** — A-1/A-2: fix retroactive reserveFactor accrual and `previewPosition` openable gate parity; A-3 acknowledged.
+- **2026-06-10** — F-2: agent decision layer (`viewRates`, `getAvailableMarkets`, `getPositionRisk`, `previewPosition`, Multicall); F-1: WETH borrowable for short ETH positions; M-7: liquidator `minCollateralOut` slippage guard.
+
+---
+
 ## License
 
 MIT

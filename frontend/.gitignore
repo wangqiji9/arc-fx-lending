@@ -1,0 +1,12 @@
+# Next.js
+.next/
+out/
+
+# Dependencies
+node_modules/
+
+# Environment (copy .env.local.example and fill in)
+.env.local
+
+# Debug
+npm-debug.log*
