@@ -149,14 +149,6 @@ Stack: Next.js 14 · wagmi v2 · viem · TailwindCSS · WalletConnect
 
 ---
 
-## Changelog
-
-- **2026-06-12** — Add Next.js frontend (markets, lend, borrow, positions); Arc Testnet deployment and multi-account seed scenarios verified on-chain.
-- **2026-06-11** — A-1/A-2: fix retroactive reserveFactor accrual and `previewPosition` openable gate parity; A-3 acknowledged.
-- **2026-06-10** — F-2: agent decision layer (`viewRates`, `getAvailableMarkets`, `getPositionRisk`, `previewPosition`, Multicall); F-1: WETH borrowable for short ETH positions; M-7: liquidator `minCollateralOut` slippage guard.
-
----
-
 ## License
 
 MIT

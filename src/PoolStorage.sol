@@ -30,8 +30,20 @@ abstract contract PoolStorage {
     /// @notice Lender-side accounting: asset => user => scaled deposit (× liquidityIndex = actual redeemable amount).
     mapping(address asset => mapping(address user => uint256 scaledDeposit)) internal scaledDeposits;
 
+    /// @notice Lender cost basis: asset => user => principal actually supplied (native amount). Accrued
+    ///         interest = currentValue − principal. Increased by the deposited amount on deposit; reduced
+    ///         pro-rata by burned shares on withdraw (selling shares does not change the basis of the rest),
+    ///         so it tracks "how much the lender put in" independently of the interest the shares earned.
+    mapping(address asset => mapping(address user => uint256 principal)) internal lenderPrincipal;
+
     /// @notice Isolated positions. key = positionKey(owner, collateralAsset, debtAsset).
     mapping(bytes32 key => DataTypes.Position) internal positions;
+
+    /// @notice Borrower cost basis: positionKey => principal actually borrowed (debt native amount). Accrued
+    ///         interest = liveDebt − principal. Increased by the borrowed amount on draw; reduced pro-rata by
+    ///         repaid shares on repay/liquidate; zeroed when the position is closed or its debt is wiped
+    ///         (repayBadDebt). Mirrors lenderPrincipal on the borrow side.
+    mapping(bytes32 key => uint256 principal) internal borrowPrincipal;
 
     /// @notice Total raw collateral amount for each asset (non-interest-bearing). Used for collateral cap + balance invariant.
     mapping(address asset => uint256) internal totalCollateral;
@@ -90,6 +102,16 @@ abstract contract PoolStorage {
 
     function getTotalCollateral(address asset) external view returns (uint256) {
         return totalCollateral[asset];
+    }
+
+    /// @notice Lender cost basis (sum of underlying deposited, pro-rata reduced on withdraw).
+    function getLenderPrincipal(address asset, address user) external view returns (uint256) {
+        return lenderPrincipal[asset][user];
+    }
+
+    /// @notice Borrow cost basis (sum of underlying borrowed, pro-rata reduced on repay).
+    function getBorrowPrincipal(bytes32 key) external view returns (uint256) {
+        return borrowPrincipal[key];
     }
 
     /// @notice All position keys for a user (for off-chain/test enumeration).

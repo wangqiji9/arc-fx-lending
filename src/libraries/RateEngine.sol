@@ -114,4 +114,52 @@ library RateEngine {
 
         reserve.lastUpdateTimestamp = uint40(block.timestamp);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        Index Projection (pure, read-only)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Pure twin of updateIndexes: projects borrowIndex / liquidityIndex forward to `timestamp`
+    ///         WITHOUT writing storage. Used by the live view layer so off-chain readers see the same
+    ///         values the next on-chain accrual will write.
+    /// @dev Byte-for-byte identical to updateIndexes(): same guard (rate != 0 && totalScaledBorrow != 0),
+    ///      same rayMul, same SECONDS_PER_YEAR, same linear factors. The only differences are: it takes a
+    ///      memory copy, computes utilization inline from that copy (the storage `utilization` helper takes
+    ///      storage), and returns the projected indexes instead of assigning them. Replaying the contract's
+    ///      own algorithm guarantees the projection equals the eventual accrual (modulo the 1-wei rounding
+    ///      that updateIndexes itself would also incur).
+    /// @param reserve          reserve snapshot (memory copy of storage)
+    /// @param reserveFactorBps protocol reserve factor, in bps
+    /// @param timestamp        target time to project to (typically block.timestamp)
+    /// @return liveBorrowIndex    borrowIndex projected to `timestamp`
+    /// @return liveLiquidityIndex liquidityIndex projected to `timestamp`
+    function previewIndexes(DataTypes.ReserveData memory reserve, uint16 reserveFactorBps, uint256 timestamp)
+        internal
+        pure
+        returns (uint256 liveBorrowIndex, uint256 liveLiquidityIndex)
+    {
+        liveBorrowIndex = reserve.borrowIndex;
+        liveLiquidityIndex = reserve.liquidityIndex;
+
+        uint256 dt = timestamp > reserve.lastUpdateTimestamp ? timestamp - reserve.lastUpdateTimestamp : 0;
+        if (dt == 0) return (liveBorrowIndex, liveLiquidityIndex);
+
+        uint256 rate = reserve.currentBorrowRate; // old rate, ray
+        if (rate != 0 && reserve.totalScaledBorrow != 0) {
+            // Utilization from the pre-update (memory) state — inlined storage `utilization`.
+            uint256 totalSupply = uint256(reserve.totalScaledSupply).rayMul(reserve.liquidityIndex);
+            uint256 util = totalSupply == 0
+                ? 0
+                : uint256(reserve.totalScaledBorrow).rayMul(reserve.borrowIndex).rayDiv(totalSupply);
+
+            // Borrow side: borrowIndex ×= (1 + rate·Δt/year)
+            uint256 borrowFactor = RAY + (rate * dt) / SECONDS_PER_YEAR;
+            liveBorrowIndex = uint256(reserve.borrowIndex).rayMul(borrowFactor);
+
+            // Supply side: supplyRate = rate × util × (1 − reserveFactor)
+            uint256 supplyRate = calculateSupplyRate(rate, util, reserveFactorBps);
+            uint256 liquidityFactor = RAY + (supplyRate * dt) / SECONDS_PER_YEAR;
+            liveLiquidityIndex = uint256(reserve.liquidityIndex).rayMul(liquidityFactor);
+        }
+    }
 }

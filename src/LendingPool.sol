@@ -135,6 +135,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         uint256 scaled = (amount * RAY) / r.liquidityIndex;
         scaledDeposits[asset][msg.sender] += scaled;
         r.totalScaledSupply += scaled.toUint128();
+        lenderPrincipal[asset][msg.sender] += amount; // cost basis: track underlying supplied
 
         _refreshRate(asset); // supply change → utilization change → recalculate rate
         _pull(asset, msg.sender, amount); // I
@@ -162,6 +163,12 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         if (scaled > userScaled) scaled = userScaled;
         scaledDeposits[asset][msg.sender] = userScaled - scaled;
         r.totalScaledSupply -= scaled.toUint128();
+
+        // Cost basis: burning shares does not change the basis of the shares that remain,
+        // so reduce principal pro-rata by the fraction of shares burned (zero on full exit).
+        uint256 remainingScaled = userScaled - scaled;
+        lenderPrincipal[asset][msg.sender] =
+            remainingScaled == 0 ? 0 : (lenderPrincipal[asset][msg.sender] * remainingScaled) / userScaled;
 
         _refreshRate(asset); // liquidity withdrawn → utilization rises → recalculate rate
         _push(asset, msg.sender, amount); // I
@@ -301,9 +308,15 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         uint256 paid = repayAmount < actualDebt ? repayAmount : actualDebt; // cap to prevent over-repayment
 
         // Reduce debt: zero out scaled on full repayment; on partial repayment round DOWN (remainder continues to accrue)
-        uint256 scaled = paid == actualDebt ? pos.scaledDebt : (paid * RAY) / r.borrowIndex;
+        uint256 scaledBefore = pos.scaledDebt;
+        uint256 scaled = paid == actualDebt ? scaledBefore : (paid * RAY) / r.borrowIndex;
         pos.scaledDebt -= scaled.toUint128();
         r.totalScaledBorrow -= scaled.toUint128();
+
+        // cost basis: reduce pro-rata by repaid shares (zero on full repay)
+        borrowPrincipal[key] = (pos.scaledDebt == 0)
+            ? 0
+            : borrowPrincipal[key] * pos.scaledDebt / scaledBefore;
 
         _closeIfEmpty(key, account);
         _refreshRate(debtAsset);
@@ -369,10 +382,16 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         if (seized < minCollateralOut) revert InsufficientCollateralSeized(seized, minCollateralOut);
 
         // E: reduce debt (round down; zero out on full repayment)
-        uint256 scaledRepaid = repaid == actualDebt ? pos.scaledDebt : (repaid * RAY) / r.borrowIndex;
-        if (scaledRepaid > pos.scaledDebt) scaledRepaid = pos.scaledDebt;
+        uint256 scaledBefore = pos.scaledDebt;
+        uint256 scaledRepaid = repaid == actualDebt ? scaledBefore : (repaid * RAY) / r.borrowIndex;
+        if (scaledRepaid > scaledBefore) scaledRepaid = scaledBefore;
         pos.scaledDebt -= scaledRepaid.toUint128();
         r.totalScaledBorrow -= scaledRepaid.toUint128();
+
+        // cost basis: reduce pro-rata by repaid shares (zero on full repay)
+        borrowPrincipal[key] = (pos.scaledDebt == 0)
+            ? 0
+            : borrowPrincipal[key] * pos.scaledDebt / scaledBefore;
 
         // E: reduce collateral
         pos.collateralAmount -= seized.toUint128();
@@ -414,6 +433,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         uint256 scaled = pos.scaledDebt;
         pos.scaledDebt = 0;
         r.totalScaledBorrow -= scaled.toUint128();
+        borrowPrincipal[key] = 0; // cost basis: debt wiped → basis cleared
 
         _closeIfEmpty(key, account);
         _refreshRate(debtAsset);
@@ -445,6 +465,58 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         return RiskEngine.calculateHealthFactor(
             pos, params.liquidationThreshold, reserves[debtAsset].borrowIndex, oracle, assetConfig
         );
+    }
+
+    /// @notice Reserve indexes projected to the current block (the values the next on-chain accrual will
+    ///         write), so off-chain readers don't see stale snapshots between operations.
+    /// @dev Free eth_call: replays RateEngine.previewIndexes (the pure twin of updateIndexes). No state change.
+    /// @return liveBorrowIndex    borrowIndex projected to block.timestamp (ray)
+    /// @return liveLiquidityIndex liquidityIndex projected to block.timestamp (ray)
+    function getLiveReserveData(address asset)
+        external
+        view
+        returns (uint256 liveBorrowIndex, uint256 liveLiquidityIndex)
+    {
+        return RateEngine.previewIndexes(reserves[asset], assetConfig[asset].reserveFactor, block.timestamp);
+    }
+
+    /// @notice Lender's live position for an asset: current redeemable value, cost basis, and earned interest.
+    /// @dev value is computed with the liquidity index projected to now, so earned reflects interest accrued
+    ///      since the last on-chain operation. earned = value − principal, floored at 0 (rounding-safe).
+    /// @return value     current redeemable underlying (principal + interest), native decimals
+    /// @return principal lender cost basis (underlying supplied, pro-rata reduced on withdraw)
+    /// @return earned    accrued interest = value − principal (0 if not positive)
+    function getLenderPosition(address asset, address user)
+        external
+        view
+        returns (uint256 value, uint256 principal, uint256 earned)
+    {
+        uint256 scaled = scaledDeposits[asset][user];
+        (, uint256 liveLiquidityIndex) =
+            RateEngine.previewIndexes(reserves[asset], assetConfig[asset].reserveFactor, block.timestamp);
+        value = (scaled * liveLiquidityIndex) / RAY;
+        principal = lenderPrincipal[asset][user];
+        earned = value > principal ? value - principal : 0;
+    }
+
+    /// @notice Borrower's live debt for a position: current debt owed, cost basis, and accrued interest.
+    /// @dev liveDebt uses the borrow index projected to now (matches the next accrual). accruedInterest =
+    ///      liveDebt − principal, floored at 0.
+    /// @return liveDebt        current debt owed (principal + interest), native decimals
+    /// @return principal       borrow cost basis (underlying borrowed, pro-rata reduced on repay)
+    /// @return accruedInterest accrued interest = liveDebt − principal (0 if not positive)
+    function getBorrowInterest(bytes32 key)
+        external
+        view
+        returns (uint256 liveDebt, uint256 principal, uint256 accruedInterest)
+    {
+        DataTypes.Position memory pos = positions[key];
+        if (pos.collateralAsset == address(0)) return (0, 0, 0);
+        (uint256 liveBorrowIndex,) =
+            RateEngine.previewIndexes(reserves[pos.debtAsset], assetConfig[pos.debtAsset].reserveFactor, block.timestamp);
+        liveDebt = RiskEngine.debtOf(pos.scaledDebt, liveBorrowIndex);
+        principal = borrowPrincipal[key];
+        accruedInterest = liveDebt > principal ? liveDebt - principal : 0;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -527,7 +599,9 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
 
         address col = pos.collateralAsset;
         address debt = pos.debtAsset;
-        uint256 borrowIndex = reserves[debt].borrowIndex;
+        // Project borrowIndex to now (matches what the next accrual writes) so HF / debt are not stale.
+        (uint256 borrowIndex,) =
+            RateEngine.previewIndexes(reserves[debt], assetConfig[debt].reserveFactor, block.timestamp);
 
         DataTypes.RiskParams memory p = RiskEngine.resolveParams(assetConfig, fxCategories, col, debt);
         uint256 hf = RiskEngine.calculateHealthFactor(pos, p.liquidationThreshold, borrowIndex, oracle, assetConfig);
@@ -747,6 +821,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         uint256 scaled = (borrowAmount * RAY + r.borrowIndex - 1) / r.borrowIndex; // round up (debt rounds up)
         positions[key].scaledDebt += scaled.toUint128();
         r.totalScaledBorrow += scaled.toUint128();
+        borrowPrincipal[key] += borrowAmount; // cost basis: track underlying borrowed
 
         _refreshRate(debtAsset);
     }
@@ -770,6 +845,7 @@ contract LendingPool is PoolStorage, ReentrancyGuard, Ownable, Multicall {
         DataTypes.Position storage pos = positions[key];
         if (pos.collateralAmount == 0 && pos.scaledDebt == 0) {
             delete positions[key];
+            delete borrowPrincipal[key]; // clear cost basis so a reused key starts fresh
             userPositionKeys[account].remove(key);
             emit PositionClosed(key, account);
         }
