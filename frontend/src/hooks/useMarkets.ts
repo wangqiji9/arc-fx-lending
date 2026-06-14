@@ -3,7 +3,6 @@ import type { Abi } from 'viem'
 import { LENDING_POOL_ADDRESS, LendingPoolABI, TOKENS, ORACLE_ADDRESS, ORACLE_ABI } from '@/lib/contracts'
 import { formatApy, formatToken } from '@/lib/format'
 
-const REFETCH_INTERVAL = 15_000 // ms — rate/reserve data poll interval
 
 const ABI = LendingPoolABI as Abi
 const RAY = BigInt('1000000000000000000000000000')
@@ -41,7 +40,6 @@ export function useMarkets() {
     address: LENDING_POOL_ADDRESS,
     abi: ABI,
     functionName: 'getAvailableMarkets',
-    query: { refetchInterval: REFETCH_INTERVAL },
   })
 
   const markets: Market[] = ((data as any[]) ?? []).map((m: any) => {
@@ -83,7 +81,6 @@ export function useSupplyAssets() {
       functionName: 'viewRates' as const,
       args: [t.address] as const,
     })),
-    query: { refetchInterval: REFETCH_INTERVAL },
   })
 
   const reserveResults = useReadContracts({
@@ -93,7 +90,6 @@ export function useSupplyAssets() {
       functionName: 'getReserveData' as const,
       args: [t.address] as const,
     })),
-    query: { refetchInterval: REFETCH_INTERVAL },
   })
 
   const isLoading = rateResults.isLoading || reserveResults.isLoading
@@ -149,7 +145,6 @@ export function useOraclePrices() {
       functionName: 'getPrice' as const,
       args: [t.address] as const,
     })),
-    query: { refetchInterval: REFETCH_INTERVAL },
   })
 
   const prices: Record<string, bigint> = {}

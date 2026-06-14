@@ -4,7 +4,6 @@ import type { Abi } from 'viem'
 import { LENDING_POOL_ADDRESS, LendingPoolABI, TOKENS } from '@/lib/contracts'
 
 const ABI = LendingPoolABI as Abi
-const REFETCH_INTERVAL = 15_000
 
 export function useUserPositionKeys() {
   const { address } = useAccount()
@@ -13,7 +12,7 @@ export function useUserPositionKeys() {
     abi: LendingPoolABI,
     functionName: 'getUserPositionKeys',
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: REFETCH_INTERVAL },
+    query: { enabled: !!address },
   })
 }
 
@@ -23,7 +22,7 @@ export function useBatchPositionRisk(keys: `0x${string}`[]) {
     abi: LendingPoolABI,
     functionName: 'batchGetPositionRisk',
     args: [keys],
-    query: { enabled: keys.length > 0, refetchInterval: REFETCH_INTERVAL },
+    query: { enabled: keys.length > 0 },
   })
 }
 
@@ -44,7 +43,7 @@ export function useReserveData(asset: `0x${string}`) {
     abi: LendingPoolABI,
     functionName: 'getReserveData',
     args: [asset],
-    query: { refetchInterval: REFETCH_INTERVAL },
+    ,
   })
 }
 
