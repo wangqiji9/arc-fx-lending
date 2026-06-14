@@ -2,23 +2,21 @@ import LendingPoolABI from '@/abis/LendingPool.json'
 
 export { LendingPoolABI }
 
-export const LENDING_POOL_ADDRESS = (
-  process.env.NEXT_PUBLIC_LENDING_POOL_ADDRESS ?? '0x0000000000000000000000000000000000000000'
-) as `0x${string}`
+export const LENDING_POOL_ADDRESS = '0x6fc50Bbd108F39Fc6B0069c29f42e4A120C9df97' as `0x${string}`
 
 export const TOKENS = {
   USDC: {
-    address: (process.env.NEXT_PUBLIC_USDC_ADDRESS ?? '0x3600000000000000000000000000000000000000') as `0x${string}`,
+    address: '0xe94C3c122204a1011EED9Ba9C11Aa8DEA861e91f' as `0x${string}`,
     symbol: 'USDC',
     decimals: 6,
   },
   EURC: {
-    address: (process.env.NEXT_PUBLIC_EURC_ADDRESS ?? '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a') as `0x${string}`,
+    address: '0x657ff6937aC8913AD3DbEC44430BcdeD3af1367C' as `0x${string}`,
     symbol: 'EURC',
     decimals: 6,
   },
   WETH: {
-    address: (process.env.NEXT_PUBLIC_WETH_ADDRESS ?? '0x0000000000000000000000000000000000000000') as `0x${string}`,
+    address: '0x78F1D761BC1E5D01b136e78A63AE444189ee02FB' as `0x${string}`,
     symbol: 'WETH',
     decimals: 18,
   },
