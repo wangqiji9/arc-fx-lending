@@ -30,6 +30,13 @@ export function tokenByAddress(address: string): typeof TOKENS[TokenSymbol] | un
   return Object.values(TOKENS).find(t => t.address.toLowerCase() === address.toLowerCase())
 }
 
+// Price oracle (IPriceOracle — USD prices with 1e8 base)
+export const ORACLE_ADDRESS = '0x39375eD41C100De00c759067774D73d62Ab7380B' as `0x${string}`
+export const ORACLE_ABI = [
+  { name: 'getPrice', type: 'function', stateMutability: 'view',
+    inputs: [{ name: 'asset', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+] as const
+
 // Minimal ERC-20 ABI (approve + balanceOf + allowance)
 export const ERC20_ABI = [
   { name: 'balanceOf', type: 'function', stateMutability: 'view',

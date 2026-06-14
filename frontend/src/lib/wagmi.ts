@@ -1,12 +1,4 @@
-import { connectorsForWallets } from '@rainbow-me/rainbowkit'
-import {
-  metaMaskWallet,
-  rainbowWallet,
-  coinbaseWallet,
-  okxWallet,
-  injectedWallet,
-} from '@rainbow-me/rainbowkit/wallets'
-import { createConfig, http } from 'wagmi'
+import { createConfig, http, injected } from 'wagmi'
 import { defineChain } from 'viem'
 
 export const arcTestnet = defineChain({
@@ -22,30 +14,12 @@ export const arcTestnet = defineChain({
   testnet: true,
 })
 
-// Get a free Project ID at https://cloud.walletconnect.com
-// Placeholder keeps the app running; WalletConnect QR won't work until replaced.
-const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '00000000000000000000000000000001'
-
-const connectors = connectorsForWallets(
-  [
-    {
-      groupName: 'Recommended',
-      wallets: [okxWallet, metaMaskWallet, coinbaseWallet],
-    },
-    {
-      groupName: 'Other',
-      wallets: [rainbowWallet, injectedWallet],
-    },
-  ],
-  {
-    appName: 'Arc FX Lending',
-    projectId,
-  }
-)
-
+// Local testnet: injected wallet only (MetaMask / OKX / browser extension).
+// WalletConnect requires a valid project ID from cloud.walletconnect.com — add it
+// to .env.local (NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID) when needed for mobile/QR flow.
 export const wagmiConfig = createConfig({
-  connectors,
+  connectors: [injected()],
   chains: [arcTestnet],
   transports: { [arcTestnet.id]: http() },
-  ssr: true,
+  ssr: false,
 })

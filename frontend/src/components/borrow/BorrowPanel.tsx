@@ -1,14 +1,21 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi'
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, usePublicClient } from 'wagmi'
 import clsx from 'clsx'
+import { decodeEventLog, parseAbiItem } from 'viem'
 import { TokenIcon } from '@/components/ui/TokenIcon'
 import { HealthBadge } from '@/components/ui/HealthBadge'
 import { LENDING_POOL_ADDRESS, LendingPoolABI, ERC20_ABI, TOKENS, type TokenSymbol } from '@/lib/contracts'
 import { formatToken, formatApy, parseTokenInput } from '@/lib/format'
 import { usePreviewPosition } from '@/hooks/usePreview'
-import { useMarkets } from '@/hooks/useMarkets'
+import { useMarkets, useOraclePrices } from '@/hooks/useMarkets'
+import { computePositionKey, savePositionOpenData } from '@/lib/positionStorage'
+import { useToast } from '@/lib/toast'
+
+const RESERVE_UPDATED_ABI = parseAbiItem(
+  'event ReserveDataUpdated(address indexed asset, uint256 liquidityIndex, uint256 borrowIndex, uint256 borrowRate)'
+)
 
 const STABLECOINS: TokenSymbol[] = ['USDC', 'EURC']
 const ALL_TOKENS = Object.values(TOKENS)
@@ -17,7 +24,6 @@ function isFxAvailable(col: TokenSymbol, debt: TokenSymbol) {
   return STABLECOINS.includes(col) && STABLECOINS.includes(debt)
 }
 
-// Dropdown token selector
 function TokenDropdown({
   value,
   exclude,
@@ -84,7 +90,6 @@ function TokenDropdown({
   )
 }
 
-// Mode badge
 function ModeBadge({ fx }: { fx: boolean }) {
   return (
     <span className={clsx(
@@ -98,23 +103,25 @@ function ModeBadge({ fx }: { fx: boolean }) {
 
 export function BorrowPanel() {
   const { address, isConnected } = useAccount()
+  const client = usePublicClient()
+  const pendingAssetsRef = useRef<{ col: `0x${string}`; debt: `0x${string}` } | null>(null)
+  const { showToast, updateToast } = useToast()
+  const toastIdRef = useRef<string | null>(null)
+
   const [colSymbol, setColSymbol] = useState<TokenSymbol>('WETH')
   const [debtSymbol, setDebtSymbol] = useState<TokenSymbol>('USDC')
   const [colAmount, setColAmount] = useState('')
   const [borrowAmount, setBorrowAmount] = useState('')
-  // FX E-Mode toggle — only relevant when both assets are stablecoins
+  const [approveInput, setApproveInput] = useState('')
   const [useFxMode, setUseFxMode] = useState(true)
 
   const colToken  = TOKENS[colSymbol]
   const debtToken = TOKENS[debtSymbol]
   const fxAvailable = isFxAvailable(colSymbol, debtSymbol)
-  // Effective mode: FX only when both are stablecoins AND user chose it
   const effectiveFx = fxAvailable && useFxMode
 
-  // When asset changes, reset FX mode default
   function handleColChange(sym: TokenSymbol) {
     setColSymbol(sym)
-    // If new pair can't be FX, reset toggle
     if (!isFxAvailable(sym, debtSymbol)) setUseFxMode(false)
     else setUseFxMode(true)
     setColAmount('')
@@ -131,12 +138,29 @@ export function BorrowPanel() {
 
   const { data: preview } = usePreviewPosition(colToken.address, parsedCol, debtToken.address, parsedBorrow)
   const { markets } = useMarkets()
+  const { prices } = useOraclePrices()
 
   const market = markets.find(
     m =>
       m.collateralAsset.toLowerCase() === colToken.address.toLowerCase() &&
       m.debtAsset.toLowerCase() === debtToken.address.toLowerCase()
   )
+
+  // Market matching the active mode — used for LTV-based max borrow calculation
+  const effectiveMarket = markets.find(
+    m =>
+      m.collateralAsset.toLowerCase() === colToken.address.toLowerCase() &&
+      m.debtAsset.toLowerCase() === debtToken.address.toLowerCase() &&
+      m.isFxMode === effectiveFx
+  ) ?? market
+
+  const colPrice  = prices[colToken.address.toLowerCase()]  ?? 0n
+  const debtPrice = prices[debtToken.address.toLowerCase()] ?? 0n
+  const maxBorrow =
+    effectiveMarket && parsedCol > 0n && colPrice > 0n && debtPrice > 0n
+      ? (parsedCol * colPrice * BigInt(effectiveMarket.ltv) * BigInt(10 ** debtToken.decimals)) /
+        (BigInt(10 ** colToken.decimals) * debtPrice * 10000n)
+      : 0n
 
   const { data: walletBal } = useReadContract({
     address: colToken.address,
@@ -146,7 +170,7 @@ export function BorrowPanel() {
     query: { enabled: !!address },
   })
 
-  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+  const { data: allowance } = useReadContract({
     address: colToken.address,
     abi: ERC20_ABI,
     functionName: 'allowance',
@@ -154,19 +178,100 @@ export function BorrowPanel() {
     query: { enabled: !!address },
   })
 
-  const { writeContract, data: txHash, isPending } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
+  const { isLoading: isConfirming, isSuccess, isError: isReverted, data: receipt } = useWaitForTransactionReceipt({ hash: txHash })
+
+  useEffect(() => {
+    if (!txHash || !toastIdRef.current) return
+    updateToast(toastIdRef.current, { txHash })
+  }, [txHash])
+
+  useEffect(() => {
+    if (!writeError || !toastIdRef.current) return
+    const msg = (writeError as any)?.shortMessage ?? writeError.message.split('\n')[0]
+    updateToast(toastIdRef.current, { status: 'error', description: msg })
+    toastIdRef.current = null
+  }, [writeError])
+
+  useEffect(() => {
+    if (!isReverted || !toastIdRef.current) return
+    updateToast(toastIdRef.current, { status: 'error', description: 'Transaction reverted on-chain' })
+    toastIdRef.current = null
+  }, [isReverted])
+
+  // When openPosition confirms: save position open data + update toast
+  useEffect(() => {
+    if (!isSuccess || !receipt || !address || !client || !pendingAssetsRef.current) return
+    const { col, debt } = pendingAssetsRef.current
+
+    if (toastIdRef.current) {
+      updateToast(toastIdRef.current, { status: 'success', description: 'Position opened successfully' })
+      toastIdRef.current = null
+    }
+
+    ;(async () => {
+      try {
+        const block = await client.getBlock({ blockNumber: receipt.blockNumber })
+        let borrowIndexAtOpen: bigint | undefined
+
+        for (const log of receipt.logs) {
+          if (log.address.toLowerCase() !== LENDING_POOL_ADDRESS.toLowerCase()) continue
+          try {
+            const decoded = decodeEventLog({ abi: [RESERVE_UPDATED_ABI], data: log.data, topics: log.topics as any })
+            const args = decoded.args as any
+            if (decoded.eventName === 'ReserveDataUpdated' && args.asset.toLowerCase() === debt.toLowerCase()) {
+              borrowIndexAtOpen = args.borrowIndex as bigint
+              break
+            }
+          } catch {}
+        }
+
+        if (!borrowIndexAtOpen) return
+
+        const posKey = computePositionKey(address, col, debt)
+        savePositionOpenData(posKey, {
+          borrowIndexAtOpen: borrowIndexAtOpen.toString(),
+          openTimestamp: Number(block.timestamp),
+        })
+      } catch (e) {
+        console.error('Failed to save position open data:', e)
+      }
+    })()
+  }, [isSuccess, receipt, address, client])
 
   const needsApprove = (allowance as bigint ?? 0n) < parsedCol && parsedCol > 0n
+  const parsedApproveAmount = approveInput
+    ? parseTokenInput(approveInput, colToken.decimals)
+    : parsedCol
   const p = preview as any
   const openable  = p?.openable ?? false
   const hfValue   = p?.healthFactor ? BigInt(p.healthFactor) : 0n
   const busy      = isPending || isConfirming
 
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
   function handleApprove() {
-    writeContract({ address: colToken.address, abi: ERC20_ABI, functionName: 'approve', args: [LENDING_POOL_ADDRESS, parsedCol] })
+    const id = `approve-${colToken.symbol}-${Date.now()}`
+    toastIdRef.current = id
+    showToast(id, {
+      title: `Approve ${colToken.symbol}`,
+      description: `Allow LendingPool to spend ${colToken.symbol}`,
+      status: 'pending',
+    })
+    writeContract({ address: colToken.address, abi: ERC20_ABI, functionName: 'approve', args: [LENDING_POOL_ADDRESS, parsedApproveAmount] })
+    setApproveInput('')
   }
+
   function handleOpen() {
+    const id = `open-position-${Date.now()}`
+    toastIdRef.current = id
+    showToast(id, {
+      title: `Open ${colSymbol} → ${debtSymbol} Position`,
+      description: `${formatToken(parsedCol, colToken.decimals, 4)} ${colSymbol} collateral · borrow ${formatToken(parsedBorrow, debtToken.decimals, 4)} ${debtSymbol}`,
+      status: 'pending',
+    })
+    pendingAssetsRef.current = { col: colToken.address, debt: debtToken.address }
     writeContract({
       address: LENDING_POOL_ADDRESS,
       abi: LendingPoolABI,
@@ -184,7 +289,6 @@ export function BorrowPanel() {
             <h2 className="text-[17px] font-semibold text-apple-label">Open Position</h2>
             <p className="text-[13px] text-apple-secondary mt-0.5">Deposit collateral and borrow in one step</p>
           </div>
-          {/* Active mode indicator */}
           <ModeBadge fx={effectiveFx} />
         </div>
 
@@ -209,7 +313,6 @@ export function BorrowPanel() {
           </div>
         </div>
 
-        {/* Arrow */}
         <div className="flex justify-center">
           <div className="w-8 h-8 bg-apple-fill rounded-full flex items-center justify-center text-apple-secondary text-sm select-none">↓</div>
         </div>
@@ -218,11 +321,21 @@ export function BorrowPanel() {
         <div className="bg-apple-bg rounded-2xl p-4 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[12px] font-medium text-apple-secondary">Borrow</span>
-            {market && (
-              <span className="text-[12px] text-apple-tertiary">
-                Avail: {market.liquidityLabel} {market.debtSymbol}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {maxBorrow > 0n && (
+                <button
+                  onClick={() => setBorrowAmount(formatToken(maxBorrow, debtToken.decimals, 4))}
+                  className="text-[12px] text-apple-blue font-medium hover:underline"
+                >
+                  Max ({formatToken(maxBorrow, debtToken.decimals, 2)} {debtToken.symbol})
+                </button>
+              )}
+              {market && (
+                <span className="text-[12px] text-apple-tertiary">
+                  Avail: {market.liquidityLabel} {market.debtSymbol}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <input
@@ -237,7 +350,6 @@ export function BorrowPanel() {
           </div>
         </div>
 
-        {/* Mode selector — only when both stablecoins */}
         {fxAvailable && (
           <div className="bg-apple-bg rounded-2xl p-4">
             <p className="text-[12px] font-medium text-apple-secondary mb-2.5">Risk Mode</p>
@@ -269,7 +381,6 @@ export function BorrowPanel() {
           </div>
         )}
 
-        {/* Preview */}
         {p && parsedCol > 0n && parsedBorrow > 0n && (
           <div className="bg-apple-bg rounded-2xl p-4 space-y-2.5">
             <p className="text-[12px] font-semibold text-apple-secondary uppercase tracking-wider">Preview</p>
@@ -301,17 +412,37 @@ export function BorrowPanel() {
           </div>
         )}
 
-        {/* CTA */}
-        {!isConnected ? (
+        {!mounted || !isConnected ? (
           <p className="text-center text-[13px] text-apple-secondary py-1">Connect wallet to continue</p>
         ) : needsApprove ? (
-          <button
-            onClick={handleApprove}
-            disabled={busy || parsedCol === 0n}
-            className="w-full py-3.5 bg-apple-orange text-white rounded-full text-[15px] font-semibold disabled:opacity-40 transition-all hover:brightness-105"
-          >
-            {busy ? 'Approving…' : `Approve ${colToken.symbol}`}
-          </button>
+          <div className="space-y-3">
+            <div className="bg-apple-bg rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[12px] text-apple-secondary">Approve amount ({colToken.symbol})</p>
+                <button
+                  onClick={() => setApproveInput(formatToken(parsedCol, colToken.decimals, colToken.decimals))}
+                  className="text-[12px] text-apple-blue font-medium hover:underline"
+                >
+                  Exact
+                </button>
+              </div>
+              <input
+                type="number"
+                min="0"
+                placeholder={formatToken(parsedCol, colToken.decimals, 4) + ' (exact)'}
+                value={approveInput}
+                onChange={e => setApproveInput(e.target.value)}
+                className="w-full bg-transparent text-[18px] font-semibold text-apple-label outline-none placeholder:text-apple-tertiary tabular-nums"
+              />
+            </div>
+            <button
+              onClick={handleApprove}
+              disabled={busy || parsedCol === 0n}
+              className="w-full py-3.5 bg-apple-orange text-white rounded-full text-[15px] font-semibold disabled:opacity-40 transition-all hover:brightness-105"
+            >
+              {busy ? 'Approving…' : `Approve ${colToken.symbol}`}
+            </button>
+          </div>
         ) : (
           <button
             onClick={handleOpen}
@@ -320,10 +451,6 @@ export function BorrowPanel() {
           >
             {busy ? (isConfirming ? 'Confirming…' : 'Sending…') : 'Open Position'}
           </button>
-        )}
-
-        {isSuccess && (
-          <p className="text-center text-[13px] text-apple-green font-medium">Position opened ✓</p>
         )}
       </div>
     </div>

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Providers } from '@/components/layout/Providers'
 import { Header } from '@/components/layout/Header'
+import { NetworkBanner } from '@/components/layout/NetworkBanner'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <Providers>
           <Header />
+          <NetworkBanner />
           <main className="min-h-screen bg-apple-bg">
             {children}
           </main>
