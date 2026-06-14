@@ -43,7 +43,6 @@ export function useReserveData(asset: `0x${string}`) {
     abi: LendingPoolABI,
     functionName: 'getReserveData',
     args: [asset],
-    ,
   })
 }
 
@@ -69,7 +68,7 @@ export function useLenderDeposits() {
       functionName: 'getLenderPosition',
       args: [t.address, address!],
     })),
-    query: { enabled: !!address, refetchInterval: REFETCH_INTERVAL },
+    query: { enabled: !!address },
   })
 
   const supplyRateResults = useReadContracts({
@@ -79,7 +78,6 @@ export function useLenderDeposits() {
       functionName: 'viewRates',
       args: [t.address],
     })),
-    query: { refetchInterval: REFETCH_INTERVAL },
   })
 
   const deposits: LenderDeposit[] = tokenList.flatMap((t, i) => {
