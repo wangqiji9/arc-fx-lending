@@ -140,6 +140,26 @@ export function PositionCard({ risk }: { risk: PositionRisk }) {
     borrowMoreEnabled ? BigInt(risk.currentDebt) + parsedAmount : 0n,
   )
 
+  // Withdraw-collateral preview
+  const { data: withdrawPreview } = usePreviewPosition(
+    pos?.collateralAsset ?? '0x0000000000000000000000000000000000000000',
+    action === 'withdraw' && parsedAmount > 0n && !!pos && BigInt(pos.collateralAmount) > parsedAmount
+      ? BigInt(pos.collateralAmount) - parsedAmount
+      : 0n,
+    pos?.debtAsset ?? '0x0000000000000000000000000000000000000000',
+    risk.currentDebt,
+  )
+
+  // Add-collateral preview
+  const { data: addColPreview } = usePreviewPosition(
+    pos?.collateralAsset ?? '0x0000000000000000000000000000000000000000',
+    action === 'addCollateral' && parsedAmount > 0n && !!pos
+      ? BigInt(pos.collateralAmount) + parsedAmount
+      : 0n,
+    pos?.debtAsset ?? '0x0000000000000000000000000000000000000000',
+    risk.currentDebt,
+  )
+
   if (!risk.exists || !pos) return null
 
   function handleApprove() {
@@ -221,6 +241,10 @@ export function PositionCard({ risk }: { risk: PositionRisk }) {
 
   const bp = borrowMorePreview as any
   const bmHf = bp?.healthFactor ? BigInt(bp.healthFactor) : null
+  const wp = withdrawPreview as any
+  const wdHf = wp?.healthFactor ? BigInt(wp.healthFactor) : null
+  const ap = addColPreview as any
+  const acHf = ap?.healthFactor ? BigInt(ap.healthFactor) : null
 
   return (
     <div className="bg-apple-card rounded-3xl shadow-apple border border-apple-separator overflow-hidden">
@@ -238,8 +262,9 @@ export function PositionCard({ risk }: { risk: PositionRisk }) {
               {colToken?.symbol ?? '?'} → {debtToken?.symbol ?? '?'}
             </p>
             <p className="text-[12px] text-apple-secondary mt-0.5">
-              {colToken && formatToken(BigInt(pos.collateralAmount), colToken.decimals, 4)} {colToken?.symbol} collateral
-              {openedLabel && <span className="ml-2 text-apple-tertiary">· opened {openedLabel}</span>}
+              {colToken && formatToken(BigInt(pos.collateralAmount), colToken.decimals, 4)} {colToken?.symbol}
+              <span className="text-apple-tertiary"> · {formatUsd(BigInt(risk.collateralValue))}</span>
+              {openedLabel && <span className="text-apple-tertiary"> · opened {openedLabel}</span>}
             </p>
           </div>
         </div>
@@ -249,6 +274,9 @@ export function PositionCard({ risk }: { risk: PositionRisk }) {
             <p className="text-[12px] text-apple-secondary mb-0.5">Debt</p>
             <p className="text-[14px] font-semibold text-apple-label tabular-nums">
               {debtToken && formatToken(BigInt(risk.currentDebt), debtToken.decimals, 4)} {debtToken?.symbol}
+            </p>
+            <p className="text-[11px] text-apple-tertiary tabular-nums">
+              {formatUsd(BigInt(risk.debtValue))}
             </p>
           </div>
           <HealthBadge wad={BigInt(risk.healthFactor)} />
@@ -265,17 +293,26 @@ export function PositionCard({ risk }: { risk: PositionRisk }) {
         <div className="px-5 pb-5 space-y-4 border-t border-apple-separator pt-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {[
-              { label: 'Collateral Value', value: formatUsd(BigInt(risk.collateralValue)) },
-              { label: 'Debt Value',       value: formatUsd(BigInt(risk.debtValue)) },
-              { label: 'Borrow APY',       value: formatApy(BigInt(risk.debtBorrowRate)) },
+              {
+                label: 'Collateral',
+                value: `${colToken ? formatToken(BigInt(pos.collateralAmount), colToken.decimals, 4) : '—'} ${colToken?.symbol ?? ''}`,
+                sub: formatUsd(BigInt(risk.collateralValue)),
+              },
+              {
+                label: 'Debt',
+                value: `${debtToken ? formatToken(BigInt(risk.currentDebt), debtToken.decimals, 4) : '—'} ${debtToken?.symbol ?? ''}`,
+                sub: formatUsd(BigInt(risk.debtValue)),
+              },
+              { label: 'Borrow APY', value: formatApy(BigInt(risk.debtBorrowRate)) },
               risk.liquidationPriceApplicable
                 ? { label: 'Liq. Price',    value: `$${(Number(BigInt(risk.liquidationPrice)) / 1e8).toFixed(2)}` }
                 : { label: 'Safety Buffer', value: `${(Number(BigInt(risk.bufferBps)) / 100).toFixed(1)} bps` },
               { label: 'Accrued Interest', value: accruedLabel, accent: true },
-            ].map(({ label, value, accent }) => (
+            ].map(({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) => (
               <div key={label} className="bg-apple-bg rounded-xl p-3">
                 <p className="text-[11px] text-apple-secondary mb-1">{label}</p>
                 <p className={clsx('text-[13px] font-semibold tabular-nums', accent ? 'text-apple-red' : 'text-apple-label')}>{value}</p>
+                {sub && <p className="text-[11px] text-apple-tertiary tabular-nums mt-0.5">{sub}</p>}
               </div>
             ))}
           </div>
@@ -324,11 +361,23 @@ export function PositionCard({ risk }: { risk: PositionRisk }) {
             />
           </div>
 
-          {/* Borrow-more HF preview */}
+          {/* HF preview for borrow / withdraw / addCollateral */}
           {action === 'borrow' && parsedAmount > 0n && bmHf !== null && (
             <div className="bg-apple-bg rounded-2xl p-4 flex items-center justify-between">
               <span className="text-[12px] text-apple-secondary">Health Factor after borrow</span>
               <HealthBadge wad={bmHf} />
+            </div>
+          )}
+          {action === 'withdraw' && parsedAmount > 0n && wdHf !== null && (
+            <div className="bg-apple-bg rounded-2xl p-4 flex items-center justify-between">
+              <span className="text-[12px] text-apple-secondary">Health Factor after withdraw</span>
+              <HealthBadge wad={wdHf} />
+            </div>
+          )}
+          {action === 'addCollateral' && parsedAmount > 0n && acHf !== null && (
+            <div className="bg-apple-bg rounded-2xl p-4 flex items-center justify-between">
+              <span className="text-[12px] text-apple-secondary">Health Factor after add collateral</span>
+              <HealthBadge wad={acHf} />
             </div>
           )}
 

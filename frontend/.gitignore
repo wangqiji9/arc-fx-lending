@@ -10,3 +10,4 @@ node_modules/
 
 # Debug
 npm-debug.log*
+.vercel
