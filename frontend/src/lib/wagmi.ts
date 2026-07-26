@@ -1,5 +1,6 @@
-import { createConfig, http, injected } from 'wagmi'
-import { defineChain } from 'viem'
+import { createConfig, injected } from 'wagmi'
+import { custom, defineChain } from 'viem'
+import { queuedRpc } from './rpcQueue'
 
 export const arcTestnet = defineChain({
   id: 5042002,
@@ -11,7 +12,28 @@ export const arcTestnet = defineChain({
   blockExplorers: {
     default: { name: 'ArcScan', url: 'https://testnet.arcscan.app' },
   },
+  // Multicall3 is deployed at the canonical address on Arc Testnet. Declaring it
+  // lets viem/wagmi batch `useReadContracts` calls; without it those calls throw
+  // "does not support contract multicall3" and dependent UI values (TVL, total
+  // supplied/borrowed, oracle prices) silently fall back to 0.
+  contracts: {
+    multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' },
+  },
   testnet: true,
+})
+
+// Custom transport: route every JSON-RPC call through the single-flight,
+// rate-limited queue (see rpcQueue.ts) instead of firing them concurrently.
+// This is what keeps reads from being rejected by the Arc public RPC limiter.
+const arcTransport = custom({
+  async request({ method, params }) {
+    const out = (await queuedRpc({ jsonrpc: '2.0', id: 1, method, params })) as {
+      result?: unknown
+      error?: { message?: string }
+    }
+    if (out.error) throw new Error(out.error.message ?? 'RPC error')
+    return out.result
+  },
 })
 
 // Local testnet: injected wallet only (MetaMask / OKX / browser extension).
@@ -20,6 +42,10 @@ export const arcTestnet = defineChain({
 export const wagmiConfig = createConfig({
   connectors: [injected()],
   chains: [arcTestnet],
-  transports: { [arcTestnet.id]: http() },
+  // Merge same-tick contract reads into a single Multicall3 call to minimize
+  // request volume against the rate limiter. `wait` batches calls fired within
+  // the window into one HTTP request.
+  batch: { multicall: { wait: 80 } },
+  transports: { [arcTestnet.id]: arcTransport },
   ssr: false,
 })
