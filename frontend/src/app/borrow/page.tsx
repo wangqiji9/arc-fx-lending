@@ -52,7 +52,7 @@ export default function BorrowPage() {
             <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[11px] font-semibold rounded-full">FX E-Mode</span>
           </div>
           <p className="text-[13px] text-apple-secondary leading-relaxed">
-            For same-currency stablecoin pairs like USDC → EURC. LTV 90%, threshold 94%, only 2.5% liquidation bonus. Risk shown as safety buffer in bps — FX risk is a depeg jump, not a price approach.
+            For same-currency stablecoin pairs like USDC → EURC. LTV 90%, threshold 94%, only 2.5% liquidation bonus. Risk is shown as a safety buffer, not a liquidation price — FX risk is a depeg jump, not a slow price approach.
           </p>
         </div>
       </div>

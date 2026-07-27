@@ -306,7 +306,7 @@ export function PositionCard({ risk }: { risk: PositionRisk }) {
               { label: 'Borrow APY', value: formatApy(BigInt(risk.debtBorrowRate)) },
               risk.liquidationPriceApplicable
                 ? { label: 'Liq. Price',    value: `$${(Number(BigInt(risk.liquidationPrice)) / 1e8).toFixed(2)}` }
-                : { label: 'Safety Buffer', value: `${(Number(BigInt(risk.bufferBps)) / 100).toFixed(1)} bps` },
+                : { label: 'Safety Buffer', value: `${(Number(BigInt(risk.bufferBps)) / 100).toFixed(1)}%` },
               { label: 'Accrued Interest', value: accruedLabel, accent: true },
             ].map(({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) => (
               <div key={label} className="bg-apple-bg rounded-xl p-3">

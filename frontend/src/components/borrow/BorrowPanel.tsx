@@ -399,7 +399,7 @@ export function BorrowPanel() {
               {!p.liquidationPriceApplicable && BigInt(p.bufferBps) > 0n && (
                 <PreviewRow label="Safety Buffer">
                   <span className="text-[13px] font-semibold text-apple-label tabular-nums">
-                    {(Number(BigInt(p.bufferBps)) / 100).toFixed(1)} bps
+                    {(Number(BigInt(p.bufferBps)) / 100).toFixed(1)}%
                   </span>
                 </PreviewRow>
               )}
