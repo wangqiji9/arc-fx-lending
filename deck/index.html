@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Arc FX Lending — Checkpoint 2</title>
+<link rel="stylesheet" href="deck.css">
+</head>
+<body>
+
+<!-- ══════════ 0 · WHAT IT IS ══════════ -->
+<section class="slide" data-page="00">
+  <div class="kicker fx">What we built</div>
+  <h2 style="font-size:33px">An over-collateralised lending protocol on Arc,<br>with a second risk model for currency pairs.</h2>
+
+  <div class="content top" style="margin-top:16px">
+    <div class="row">
+      <div class="col card" style="flex:1.25">
+        <span class="tag">In one paragraph</span>
+        <p class="body-lg" style="margin-top:12px;color:var(--fg-dim);font-size:16px;line-height:1.62">
+          Deposit an asset, borrow another against it, get liquidated if your health factor
+          drops below 1 — the familiar shape of a lending market. What we add: risk
+          parameters resolve <strong>per currency pair</strong>, not per asset. A
+          USDC&nbsp;↔&nbsp;EURC loan is priced off EUR/USD volatility; anything touching WETH
+          keeps conservative Standard parameters. One pool, one liquidation engine, two
+          parameter sources.
+        </p>
+        <div class="divider" style="margin:14px 0"></div>
+        <table class="compact mono">
+          <tr><td>Deployed on</td><td class="num m-accent">Arc Testnet · chainId 5042002</td></tr>
+          <tr><td>Core contract</td><td class="num">LendingPool.sol · 1,091 SLOC</td></tr>
+          <tr style="border:0"><td>Assets live</td><td class="num">USDC · EURC · WETH</td></tr>
+        </table>
+      </div>
+
+      <div class="col stack" style="flex:.85">
+        <div class="card pad-sm good">
+          <h3 style="font-size:15px">Why Arc specifically</h3>
+          <p class="body" style="margin-top:6px">
+            USDC is native and regulated-first on Arc, with EURC alongside it as a
+            first-class asset. That makes Arc the chain where credit
+            <em>between two Circle currencies</em> is a natural product, not a bridged
+            workaround.
+          </p>
+        </div>
+        <div class="card pad-sm">
+          <h3 style="font-size:15px">Why it matters</h3>
+          <p class="body" style="margin-top:6px">
+            A EUR/USD pair moves far less than a crypto pair, so it safely supports a much
+            higher LTV. Existing markets don't capture that — and the mechanism generalises
+            to further pairs.
+          </p>
+        </div>
+        <div class="card pad-sm">
+          <h3 style="font-size:15px">Built for agents</h3>
+          <p class="body" style="margin-top:6px">
+            Market discovery, pricing and risk checks are all read-only calls — built for
+            autonomous strategies, not just human clicks.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 1 · COVER ══════════ -->
+<section class="slide cover" data-page="01">
+  <div class="kicker">Arc Hackathon · Checkpoint 2 · DeFi Track</div>
+  <h1>Lending on Arc, extended to<br><span class="m-fx">currency-pair</span> credit.</h1>
+  <p class="sub" style="margin-top:26px">
+    USDC&nbsp;↔&nbsp;EURC borrowing at <strong>90% LTV</strong>. Liquidation parameters are
+    computed from EUR/USD volatility by the risk engine, and validated against real
+    positions on Arc Testnet across repeated runs.
+    <span style="display:block;margin-top:12px">Every risk read is a view call, so an
+    <strong>AI agent can drive the whole loop</strong> without simulating the protocol.</span>
+  </p>
+  <div class="row" style="margin-top:52px;gap:56px">
+    <div>
+      <div class="stat-num sm m-fx">$105K</div>
+      <div class="stat-lbl">On-chain TVL</div>
+    </div>
+    <div>
+      <div class="stat-num sm">10</div>
+      <div class="stat-lbl">Live positions</div>
+    </div>
+    <div>
+      <div class="stat-num sm">175</div>
+      <div class="stat-lbl">Tests passing</div>
+    </div>
+    <div>
+      <div class="stat-num sm">6</div>
+      <div class="stat-lbl">Agent view APIs</div>
+    </div>
+  </div>
+  <div class="footer-note" style="margin-top:48px">
+    arc-lending.vercel.app &nbsp;·&nbsp; github.com/wangqiji9/arc-fx-lending &nbsp;·&nbsp; Arc Testnet chainId 5042002
+  </div>
+</section>
+
+<!-- ══════════ 2 · PROBLEM ══════════ -->
+<section class="slide" data-page="02">
+  <div class="kicker">The opportunity</div>
+  <h2>A currency pair moves far less than a crypto pair.</h2>
+  <p class="sub" style="margin-top:10px;font-size:18px">
+    That lower volatility is real collateral headroom — it supports a
+    <strong>materially higher LTV</strong>, if the protocol actually measures it.
+  </p>
+
+  <div class="content top" style="margin-top:16px">
+    <div class="row">
+      <div class="col card good">
+        <span class="tag fx">The insight</span>
+        <h3 style="margin-top:10px">EUR/USD risk is an order of magnitude smaller</h3>
+        <table class="compact mono" style="margin-top:8px">
+          <tr><th>Annualised vol</th><th class="num">Typical</th></tr>
+          <tr><td>ETH / USD</td><td class="num m-bad">60 – 80%</td></tr>
+          <tr><td>BTC / USD</td><td class="num m-bad">40 – 60%</td></tr>
+          <tr style="border:0"><td>EUR / USD</td><td class="num m-fx">7 – 11%</td></tr>
+        </table>
+        <p class="body" style="margin-top:12px">
+          Roughly <strong>6–8× less volatile</strong> than what a lending market normally
+          underwrites. Charging a EUR/USD loan the same collateral cost as an ETH loan
+          leaves most of that headroom unused.
+        </p>
+      </div>
+      <div class="col card">
+        <span class="tag neutral">But not zero</span>
+        <h3 style="margin-top:12px">EUR/USD, measured properly</h3>
+        <table class="compact mono" style="margin-top:6px">
+          <tr><td>Calm regime</td><td class="num">7–8%</td></tr>
+          <tr><td>Stress (2022)</td><td class="num m-warn">~11%</td></tr>
+          <tr><td>Implied vol 2022</td><td class="num m-warn">10.6%</td></tr>
+          <tr><td>Implied vol 2024</td><td class="num">7.3%</td></tr>
+          <tr style="border:0"><td>Worst single day</td><td class="num m-bad">&gt; 2%</td></tr>
+        </table>
+        <p class="tiny" style="margin-top:12px">
+          Lower than crypto, but a 2% gap day still happens. The higher LTV has to be
+          <strong>derived from these numbers</strong>, not simply set as high as the
+          category allows.
+        </p>
+      </div>
+    </div>
+
+    <div class="card hl" style="margin-top:8px">
+      <p class="body-lg" style="color:var(--fg);font-size:16px">
+        <strong>So we made the currency pair a first-class risk object.</strong>
+        A registered pair gets parameters computed from its own volatility, and everything
+        else falls back to Standard. USDC&nbsp;↔&nbsp;EURC is the first entry —
+        <strong>additional currency pairs plug into the same mechanism</strong>
+        as configuration, not new risk code.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 3 · SOLUTION ══════════ -->
+<section class="slide" data-page="03">
+  <div class="kicker fx">The solution</div>
+  <h2>One pool, two risk models.</h2>
+  <p class="sub" style="margin-top:12px;font-size:19px">
+    Risk parameters resolve <strong>per currency pair</strong>, not per asset.
+    Same collateral, different rules, depending on what you borrow.
+  </p>
+
+  <div class="content top">
+    <div class="row">
+      <div class="col card">
+        <span class="tag">Standard mode</span>
+        <h3 style="margin-top:12px">Cross-currency &amp; volatile assets</h3>
+        <p class="body" style="margin-bottom:14px">
+          Sourced from per-asset <code>AssetConfig</code>. Covers WETH collateral,
+          shorts, and any pair without a registered FX category.
+        </p>
+        <table class="compact mono">
+          <tr><td>Max LTV</td><td class="num m-accent">75%</td></tr>
+          <tr><td>Liquidation threshold</td><td class="num m-accent">80%</td></tr>
+          <tr><td>Liquidation bonus</td><td class="num m-accent">5.0 – 7.5%</td></tr>
+          <tr style="border:0"><td>Reserve factor</td><td class="num">10%</td></tr>
+        </table>
+      </div>
+      <div class="col card good">
+        <span class="tag fx">FX E-Mode</span>
+        <h3 style="margin-top:12px">USDC ↔ EURC, both directions</h3>
+        <p class="body" style="margin-bottom:14px">
+          Sourced from <code>FxCategory</code>, keyed by the currency pair.
+          Each value is computed from that pair's own measured volatility.
+        </p>
+        <table class="compact mono">
+          <tr><td>Max LTV</td><td class="num m-fx">90%</td></tr>
+          <tr><td>Liquidation threshold</td><td class="num m-fx">94%</td></tr>
+          <tr><td>Liquidation bonus</td><td class="num m-fx">2.5%</td></tr>
+          <tr style="border:0"><td>Reserve factor</td><td class="num">10%</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:20px">
+      <div class="col card pad-sm soft">
+        <h3 style="font-size:16px">Capital efficiency where it's earned</h3>
+        <p class="body" style="margin-top:6px">90% LTV on FX pairs vs 75% standard —
+        <strong>1.2× more borrowing power</strong>, because the risk genuinely is lower.</p>
+      </div>
+      <div class="col card pad-sm soft">
+        <h3 style="font-size:16px">Honest where it isn't</h3>
+        <p class="body" style="margin-top:6px">94%, not 98%. We give up headline LTV to keep a
+        <strong>liquidation window that actually works</strong> — next slide.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 4 · PARAMETER DERIVATION ══════════ -->
+<section class="slide" data-page="04">
+  <div class="kicker fx">Why 94% and not 98%</div>
+  <h2>Three constraints pin the parameters.</h2>
+  <p class="sub" style="margin-top:10px;font-size:18px">
+    LT and bonus are not tuned by feel. Each is bounded by a closed-form condition —
+    and 98% violates all three.
+  </p>
+
+  <div class="content top" style="margin-top:16px">
+    <div class="formula">1 · Death-spiral bound   bonus &lt; (1 − LT) / LT  =  (1 − 0.94) / 0.94  =  <span class="m-fx">6.38%</span>   →  we use 2.5%  <span class="m-fx">✓</span>
+2 · Healthy window      1 − LT × (1 + bonus)  =  1 − 0.94 × 1.025    =  <span class="m-fx">3.65%</span>   →  90× wider   <span class="m-fx">✓</span>
+3 · Collateral buffer   1 / LT − 1            =  1 / 0.94 − 1        =  <span class="m-fx">6.38%</span>   →  ~9 stress σ  <span class="m-fx">✓</span></div>
+
+    <div class="row" style="margin-top:18px">
+      <div class="col card bad" style="flex:1.05">
+        <span class="tag bad">LT 98% / bonus 2% — the naive high-LTV choice</span>
+        <div class="bar-wrap" style="margin-top:16px">
+          <div class="bar-lbl">Healthy liquidation window</div>
+          <div class="bar-track"><div class="bar-fill bad" style="width:1.1%"></div></div>
+          <div class="bar-val m-bad">0.04%</div>
+        </div>
+        <p class="body" style="margin-top:16px">
+          Between "liquidatable" and "already insolvent" there is
+          <strong>4 basis points</strong> of price. A liquidator has no
+          profitable window; the position goes straight to bad debt.
+          And 2% bonus is already <em>at</em> the death-spiral bound — every
+          liquidation pushes HF further down.
+        </p>
+      </div>
+      <div class="col card good" style="flex:1.05">
+        <span class="tag fx">LT 94% / bonus 2.5% — FX-derived</span>
+        <div class="bar-wrap" style="margin-top:16px">
+          <div class="bar-lbl">Healthy liquidation window</div>
+          <div class="bar-track"><div class="bar-fill fx" style="width:100%"></div></div>
+          <div class="bar-val m-fx">3.65%</div>
+        </div>
+        <p class="body" style="margin-top:16px">
+          A <strong>3.65% price band</strong> in which liquidation is profitable
+          and the protocol stays solvent. That absorbs a 2%+ FX gap move
+          with room left over, and the 6.38% collateral buffer covers roughly
+          nine stress-day sigmas.
+        </p>
+      </div>
+    </div>
+
+    <p class="footer-note" style="margin-top:14px">
+      The trade is deliberate: 4 points of headline LTV bought a 90× wider survival window.
+      Full derivation in <code>docs/architecture.md</code>.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════ 5 · DYNAMIC CLOSE FACTOR ══════════ -->
+<section class="slide" data-page="05">
+  <div class="kicker">Liquidation engine</div>
+  <h2>The close factor moves with the position.</h2>
+  <p class="sub" style="margin-top:10px;font-size:18px">
+    A fixed 50% close factor leaves dust positions that no one will ever liquidate.
+    Ours switches to full close before the position can cross into insolvency.
+  </p>
+
+  <div class="content top" style="margin-top:24px">
+    <div class="row">
+      <div class="col card" style="flex:1.15">
+        <table class="compact">
+          <tr><th>Health factor</th><th>Close factor</th><th>Rationale</th></tr>
+          <tr>
+            <td class="m">HF ≥ 1.0</td>
+            <td><span class="tag neutral">none</span></td>
+            <td>Not liquidatable</td>
+          </tr>
+          <tr>
+            <td class="m">1.0 &gt; HF ≥ threshold</td>
+            <td><span class="tag">50%</span></td>
+            <td>Partial — minimum force needed to restore health</td>
+          </tr>
+          <tr style="border:0">
+            <td class="m">HF &lt; threshold</td>
+            <td><span class="tag bad">100%</span></td>
+            <td>Full close before the healthy window runs out</td>
+          </tr>
+        </table>
+        <div class="divider"></div>
+        <table class="compact mono">
+          <tr><td>Standard threshold</td><td class="num m-accent">HF 0.980</td></tr>
+          <tr style="border:0"><td>FX E-Mode threshold</td><td class="num m-fx">HF 0.983</td></tr>
+        </table>
+        <p class="tiny" style="margin-top:12px">
+          The FX threshold is higher on purpose: a narrower window means the
+          switch to full close has to fire earlier.
+        </p>
+      </div>
+      <div class="col stack" style="flex:.85">
+        <div class="card pad-sm">
+          <h3 style="font-size:16px">Isolated by pair</h3>
+          <p class="body" style="margin-top:6px">
+            Every position is keyed by <code>(owner, collateral, debt)</code>.
+            One pair going bad cannot touch the borrower's other positions —
+            contagion is bounded by construction.
+          </p>
+        </div>
+        <div class="card pad-sm">
+          <h3 style="font-size:16px">Oracle pause gate</h3>
+          <p class="body" style="margin-top:6px">
+            Stale price feeds block anything that <em>increases</em> risk —
+            open, borrow, withdraw collateral, liquidate. Repay, deposit and
+            add-collateral stay open so borrowers can always defend themselves.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 6 · ARCHITECTURE ══════════ -->
+<section class="slide" data-page="06">
+  <div class="kicker">Architecture</div>
+  <h2>One pool contract. Pure-library risk math.</h2>
+  <p class="sub" style="margin-top:8px;font-size:17px">
+    1,091 lines of Solidity. No proxies, no external keepers, no off-chain risk service.
+  </p>
+
+  <div class="content top" style="margin-top:12px">
+    <div class="arch">
+      <div class="arch-layer">
+        <div class="arch-tag">Clients</div>
+        <div class="arch-boxes">
+          <div class="arch-box">Next.js 15 dApp<span>wagmi · viem · RainbowKit</span></div>
+          <div class="arch-box">AI agents<span>read-only decision layer</span></div>
+          <div class="arch-box">Liquidators<span>permissionless</span></div>
+        </div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-layer hl">
+        <div class="arch-tag">Core</div>
+        <div class="arch-boxes">
+          <div class="arch-box wide">
+            <strong style="font-size:16px">LendingPool.sol</strong>
+            <span>deposit · withdraw · openPosition · borrow · repay · addCollateral · liquidate<br>
+            + 5 agent view APIs · OZ Multicall · ReentrancyGuard · Ownable</span>
+          </div>
+        </div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-layer">
+        <div class="arch-tag">Libraries</div>
+        <div class="arch-boxes">
+          <div class="arch-box sm">RiskEngine<span>HF · mode resolution</span></div>
+          <div class="arch-box sm">Liquidation<span>close factor · seize</span></div>
+          <div class="arch-box sm">RateEngine<span>kinked IRM</span></div>
+          <div class="arch-box sm">WadRayMath<span>1e27 indices</span></div>
+          <div class="arch-box sm">Keys<span>position hashing</span></div>
+        </div>
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-layer">
+        <div class="arch-tag">Oracles</div>
+        <div class="arch-boxes">
+          <div class="arch-box">ChainlinkPriceOracle<span>AggregatorV3 + staleness gate</span></div>
+          <div class="arch-box">PythPriceOracle<span>pull-based, confidence checks</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row tight" style="margin-top:16px">
+      <div class="col card pad-sm soft">
+        <p class="body"><strong>Single source of risk truth.</strong> The agent views call the
+        <em>same</em> <code>RiskEngine</code> functions the state-changing paths use — a preview
+        cannot disagree with the transaction.</p>
+      </div>
+      <div class="col card pad-sm soft">
+        <p class="body"><strong>Interest as indices.</strong> Ray-math <code>borrowIndex</code> /
+        <code>liquidityIndex</code> accrue on touch. No per-user loops, no upkeep transactions.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 7 · AGENT LAYER ══════════ -->
+<section class="slide" data-page="07">
+  <div class="kicker fx">Differentiator</div>
+  <h2>Built to be driven by an agent.</h2>
+  <p class="sub" style="margin-top:8px;font-size:17px">
+    An autonomous FX strategy needs to discover markets, price a trade and check its own risk —
+    without simulating the protocol. Five view calls cover the whole loop.
+  </p>
+
+  <div class="content top" style="margin-top:16px">
+    <table class="compact dense">
+      <tr><th style="width:230px">Call</th><th>Answers</th><th style="width:180px">Returns</th></tr>
+      <tr>
+        <td class="m m-fx">getAvailableMarkets()</td>
+        <td>Which (collateral, debt) pairs can I act on, at what resolved LTV, cost and liquidity?</td>
+        <td class="m">MarketInfo[]</td>
+      </tr>
+      <tr>
+        <td class="m m-fx">previewPosition(…)</td>
+        <td>If I post X and borrow Y — will it open, at what HF, at what post-trade borrow rate?</td>
+        <td class="m">PreviewResult</td>
+      </tr>
+      <tr>
+        <td class="m m-fx">getPositionRisk(key)</td>
+        <td>How close to liquidation am I, and what is my real carry right now?</td>
+        <td class="m">PositionRisk</td>
+      </tr>
+      <tr>
+        <td class="m m-fx">batchGetPositionRisk(…)</td>
+        <td>Same, for a whole book — one RPC round trip.</td>
+        <td class="m">PositionRisk[]</td>
+      </tr>
+      <tr>
+        <td class="m m-fx">viewRates(asset)</td>
+        <td>Current borrow and supply rate, reserve factor already applied.</td>
+        <td class="m">(uint, uint)</td>
+      </tr>
+      <tr style="border:0">
+        <td class="m">multicall(bytes[])</td>
+        <td>Batch <code>addCollateral</code> + <code>borrow</code> atomically — rebalance in one tx.</td>
+        <td class="m">bytes[]</td>
+      </tr>
+    </table>
+
+    <div class="row" style="margin-top:16px">
+      <div class="col card good" style="padding:18px 20px">
+        <h3 style="font-size:16px">An honest signal, not a comfortable one</h3>
+        <p class="body" style="margin-top:8px">
+          In Standard mode the views return a scalar <code>liquidationPrice</code>.
+          In FX E-Mode they return a <strong>sentinel 0 with
+          <code>liquidationPriceApplicable = false</code></strong> and report
+          <code>bufferBps</code> instead.
+        </p>
+        <p class="body" style="margin-top:10px">
+          Because FX risk is a <em>depeg jump</em>, not a continuous drift toward a
+          number. Handing an agent "you're still far from 1.0421" would manufacture
+          false safety. We refuse to emit a number we don't believe.
+        </p>
+      </div>
+      <div class="col card" style="padding:18px 20px">
+        <h3 style="font-size:16px">Multicall, safely</h3>
+        <p class="body" style="margin-top:8px">
+          OZ <code>Multicall</code> has a known high-severity footgun: a
+          <code>payable</code> entry point lets one <code>msg.value</code> be
+          replayed across every batched call.
+        </p>
+        <p class="body" style="margin-top:10px">
+          The protocol has <strong>no payable entry points</strong> — the invariant
+          that makes batching safe. It is documented at the contract head and
+          guarded by a regression test, so a future Pyth fee-forwarding change
+          can't silently reintroduce it.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 8 · LIVE ON ARC ══════════ -->
+<section class="slide" data-page="08">
+  <div class="kicker fx">Live on Arc Testnet</div>
+  <h2>Not a prototype. Real state, verifiable now.</h2>
+
+  <div class="content top" style="margin-top:14px">
+    <div class="row">
+      <div class="col" style="flex:1.1">
+        <div class="term">$ ./script/status.sh                          <span class="c"># chainId 5042002</span>
+
+<span class="c">POOL RESERVES</span>            <span class="c">supplied      borrowed       util</span>
+USDC                  <span class="b">61,004.27</span>     <span class="b">39,104.75</span>       <span class="y">64%</span>
+EURC                  <span class="g">30,000.73</span>     <span class="g">10,180.82</span>       <span class="y">33%</span>
+WETH                       <span class="b">4.0006</span>        <span class="b">2.5507</span>       <span class="y">63%</span>
+
+<span class="c">TVL</span>  61,004 USDC + 32,401 (EURC@1.08) + 12,002 (WETH@3000)
+     = <span class="g">$105,405</span>
+
+<span class="c">BORROW RATES (live, kinked IRM)</span>
+USDC   borrow <span class="y">4.21%</span>   supply <span class="g">2.43%</span>
+EURC   borrow <span class="y">3.70%</span>   supply <span class="g">1.13%</span>
+WETH   borrow <span class="y">3.19%</span>   supply <span class="g">1.83%</span></div>
+        <div class="row tight" style="margin-top:12px">
+          <div class="col card pad-sm" style="text-align:center;padding:11px 12px">
+            <div class="stat-num sm m-fx" style="font-size:26px">5</div>
+            <div class="stat-lbl" style="font-size:10px;margin-top:5px">FX E-Mode</div>
+          </div>
+          <div class="col card pad-sm" style="text-align:center;padding:11px 12px">
+            <div class="stat-num sm m-accent" style="font-size:26px">3</div>
+            <div class="stat-lbl" style="font-size:10px;margin-top:5px">Std long</div>
+          </div>
+          <div class="col card pad-sm" style="text-align:center;padding:11px 12px">
+            <div class="stat-num sm m-accent" style="font-size:26px">2</div>
+            <div class="stat-lbl" style="font-size:10px;margin-top:5px">Std short</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col" style="flex:.9">
+        <div class="card" style="padding:12px 16px">
+          <h3 style="font-size:14px;margin-bottom:4px">Open positions — all three risk paths</h3>
+          <table class="compact mono dense" style="font-size:11px">
+            <tr><th>Pair</th><th>Mode</th><th class="num">Debt</th><th class="num">HF</th></tr>
+            <tr><td>WETH/USDC</td><td><span class="tag" style="font-size:9px;padding:2px 6px">STD</span></td><td class="num">10,200.87</td><td class="num">1.205</td></tr>
+            <tr><td>WETH/USDC</td><td><span class="tag" style="font-size:9px;padding:2px 6px">STD</span></td><td class="num">6,150.65</td><td class="num">1.202</td></tr>
+            <tr><td>WETH/USDC</td><td><span class="tag" style="font-size:9px;padding:2px 6px">STD</span></td><td class="num">6,000.00</td><td class="num">1.200</td></tr>
+            <tr><td>USDC/EURC</td><td><span class="tag fx" style="font-size:9px;padding:2px 6px">FX</span></td><td class="num">4,180.82</td><td class="num">1.207</td></tr>
+            <tr><td>USDC/EURC</td><td><span class="tag fx" style="font-size:9px;padding:2px 6px">FX</span></td><td class="num">3,500.00</td><td class="num">1.243</td></tr>
+            <tr><td>USDC/EURC</td><td><span class="tag fx" style="font-size:9px;padding:2px 6px">FX</span></td><td class="num">2,500.00</td><td class="num">1.253</td></tr>
+            <tr><td>EURC/USDC</td><td><span class="tag fx" style="font-size:9px;padding:2px 6px">FX</span></td><td class="num">8,000.00</td><td class="num">1.269</td></tr>
+            <tr><td>EURC/USDC</td><td><span class="tag fx" style="font-size:9px;padding:2px 6px">FX</span></td><td class="num">8,251.09</td><td class="num">1.280</td></tr>
+            <tr><td>USDC/WETH</td><td><span class="tag" style="font-size:9px;padding:2px 6px">STD</span></td><td class="num">1.50</td><td class="num">1.422</td></tr>
+            <tr style="border:0"><td>USDC/WETH</td><td><span class="tag" style="font-size:9px;padding:2px 6px">STD</span></td><td class="num">0.90</td><td class="num">1.481</td></tr>
+          </table>
+        </div>
+        <div class="card pad-sm soft" style="margin-top:11px;padding:12px 16px">
+          <table class="compact mono dense" style="font-size:10.5px">
+            <tr><td style="color:var(--fg-faint)">LendingPool</td><td class="num">0x6fc50Bbd…C9df97</td></tr>
+            <tr><td style="color:var(--fg-faint)">PriceOracle</td><td class="num">0x39375eD4…b7380B</td></tr>
+            <tr><td style="color:var(--fg-faint)">USDC</td><td class="num">0xe94C3c12…61e91f</td></tr>
+            <tr><td style="color:var(--fg-faint)">EURC</td><td class="num">0x657ff693…f1367C</td></tr>
+            <tr style="border:0"><td style="color:var(--fg-faint)">WETH</td><td class="num">0x78F1D761…ee02FB</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 9 · PRODUCT ══════════ -->
+<section class="slide" data-page="09">
+  <div class="kicker">Product</div>
+  <h2>The whole loop works in a browser.</h2>
+  <p class="sub" style="margin-top:10px;font-size:18px">
+    Connect · lend · open an FX position · watch HF · repay · liquidate — no CLI required.
+    <span class="m m-accent">arc-lending.vercel.app</span>
+  </p>
+
+  <div class="content top" style="margin-top:18px">
+    <div class="row" style="gap:16px;align-items:flex-start">
+      <div class="col" style="flex:1.51">
+        <img class="shot raw" src="assets/01-markets.png" alt="Borrow markets list: FX E-Mode pairs at 90% LTV and 94% liquidation threshold above Standard markets at 75% LTV and 80% threshold">
+        <div class="shot-cap"><strong>Both risk models, one list.</strong> FX E-Mode pairs are
+        promoted to <strong>90% LTV / 94% LT</strong>; anything routed through a volatile leg
+        stays at <strong>75% / 80%</strong>. Read from the chain at render time.</div>
+      </div>
+      <div class="col" style="flex:.88">
+        <img class="shot raw" src="assets/02-borrow-preview.png" alt="FX E-Mode borrow preview showing health factor 2.03, borrow APY 4.61% and safety buffer 103.0%">
+        <div class="shot-cap"><strong>The full risk computation, itemised.</strong> HF, borrow APY
+        and safety buffer — every figure from the same <code>RiskEngine</code> the
+        transaction runs.</div>
+      </div>
+      <div class="col" style="flex:1.09">
+        <img class="shot raw" src="assets/03-positions.png" alt="A user's positions view listing each open position with its own health factor, collateral and accrued interest">
+        <div class="shot-cap"><strong>A user's positions at a glance.</strong> Each listed
+        separately with its own HF, collateral and accrued interest.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 10 · SECURITY ══════════ -->
+<section class="slide" data-page="10">
+  <div class="kicker">Security</div>
+  <h2>The risk model is the product, so it gets audited like one.</h2>
+
+  <div class="content top" style="margin-top:18px">
+    <div class="row" style="gap:20px">
+      <div class="col card" style="flex:1.05">
+        <span class="tag fx">Test suite</span>
+        <div class="row" style="margin-top:16px;gap:24px">
+          <div><div class="stat-num sm m-fx">175</div><div class="stat-lbl" style="font-size:10.5px">passing</div></div>
+          <div><div class="stat-num sm">20</div><div class="stat-lbl" style="font-size:10.5px">suites</div></div>
+          <div><div class="stat-num sm">2.7×</div><div class="stat-lbl" style="font-size:10.5px">test:src ratio</div></div>
+        </div>
+        <div class="divider"></div>
+        <ul class="list check tight">
+          <li><strong>Invariants</strong> — solvency and index monotonicity under random op sequences</li>
+          <li><strong>Fuzz</strong> — HF and close-factor boundaries, rounding direction</li>
+          <li><strong>Scenario</strong> — full depeg / liquidation cascade walkthroughs</li>
+          <li><strong>Adversarial</strong> — oracle pause bypass, fee-on-transfer tokens,
+              multicall value replay, reserve-factor accrual</li>
+        </ul>
+        <p class="tiny" style="margin-top:12px">1,091 SLOC src · 2,945 SLOC test · <code>forge test</code> green, 0 skipped</p>
+      </div>
+
+      <div class="col card" style="flex:.95">
+        <span class="tag">Self-audit ledger</span>
+        <h3 style="margin-top:12px;font-size:16px">34 findings, tracked to disposition</h3>
+        <p class="body" style="margin-top:8px">
+          Five review passes over the protocol, each finding logged with an ID, a
+          severity, a disposition (<em>fixed / wontfix / acknowledged</em>) and —
+          where fixed — the regression test that pins it.
+        </p>
+        <table class="compact mono" style="margin-top:14px;font-size:12px">
+          <tr><td>Math &amp; rounding</td><td class="num">M-1 … M-7</td></tr>
+          <tr><td>Design decisions</td><td class="num">D-1 … D-5</td></tr>
+          <tr><td>Test-gap findings</td><td class="num">T-1 … T-21</td></tr>
+          <tr><td>Agent layer</td><td class="num">A-1 … A-3</td></tr>
+          <tr style="border:0"><td>Frontend / scripts</td><td class="num">F, S series</td></tr>
+        </table>
+        <p class="tiny" style="margin-top:14px">
+          Rounding always favours the protocol: debt ceils, collateral floors.
+          Every asymmetry is deliberate and test-pinned rather than incidental.
+        </p>
+      </div>
+    </div>
+
+    <div class="card hl" style="margin-top:16px;padding:16px 20px">
+      <p class="body" style="color:var(--fg)">
+        <strong>Known limits, stated plainly.</strong> Testnet oracles are mock-fed at
+        fixed prices; production needs live Chainlink/Pyth EUR/USD with the staleness
+        and confidence gates already implemented. Governance is a single
+        <code>Ownable</code> owner — a timelock is required before mainnet.
+        No third-party audit yet.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 11 · ROADMAP + CLOSE ══════════ -->
+<section class="slide" data-page="11">
+  <div class="kicker fx">What's next</div>
+  <h2>The FX category generalises.</h2>
+  <p class="sub" style="margin-top:10px;font-size:18px">
+    Everything above is one <code>FxCategory</code> entry. Adding a currency pair is
+    configuration, not new risk code.
+  </p>
+
+  <div class="content top" style="margin-top:24px">
+    <div class="row tight">
+      <div class="col card">
+        <span class="tag neutral">Near term</span>
+        <ul class="list tight" style="margin-top:14px">
+          <li><strong>Live EUR/USD feeds</strong> — swap mock oracle for Chainlink + Pyth,
+              both adapters already written and tested</li>
+          <li><strong>More stablecoin FX pairs</strong> — each is a category registration
+              with its own volatility-derived LT and bonus</li>
+          <li><strong>Timelocked governance</strong> — parameter changes behind a delay</li>
+        </ul>
+      </div>
+      <div class="col card">
+        <span class="tag fx">Beyond</span>
+        <ul class="list fx tight" style="margin-top:14px">
+          <li><strong>Safety module</strong> — staked backstop for the residual
+              depeg-jump tail the parameters can't absorb</li>
+          <li><strong>Agent strategies</strong> — reference carry / rebalance bots
+              on the existing view layer, no protocol change needed</li>
+          <li><strong>Third-party audit</strong> before any mainnet deployment</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card hl" style="margin-top:22px">
+      <h3 style="font-size:19px;color:var(--fg)">Why Arc</h3>
+      <p class="body-lg" style="margin-top:8px">
+        Arc is the chain where USDC and EURC are both first-class. FX credit between
+        two Circle-issued currencies belongs here — and it only works if someone
+        prices the exchange rate risk honestly instead of pretending a euro is a dollar.
+      </p>
+    </div>
+
+    <div class="row" style="margin-top:26px;gap:40px">
+      <div>
+        <div class="stat-lbl" style="margin:0 0 6px">Live app</div>
+        <div class="m m-accent" style="font-size:15px">arc-lending.vercel.app</div>
+      </div>
+      <div>
+        <div class="stat-lbl" style="margin:0 0 6px">Source</div>
+        <div class="m m-accent" style="font-size:15px">github.com/wangqiji9/arc-fx-lending</div>
+      </div>
+      <div>
+        <div class="stat-lbl" style="margin:0 0 6px">Network</div>
+        <div class="m" style="font-size:15px;color:var(--fg-dim)">Arc Testnet · 5042002</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
