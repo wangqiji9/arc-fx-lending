@@ -11,10 +11,12 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      // The RPC queue (see rpcQueue.ts) already retries on rate-limit; give
-      // React Query a couple more attempts for anything that still slips through.
-      retry: 3,
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+      // rpcQueue.ts owns rate-limit handling: it retries across three endpoints
+      // with its own backoff. Retrying aggressively here as well multiplied the
+      // request count for the same read (measured: 13 HTTP requests for 2
+      // distinct payloads), so keep this to a single safety-net attempt.
+      retry: 1,
+      retryDelay: 500,
       // Keep the last good data on screen while refetching so a transient
       // limiter rejection never blanks the UI back to 0 / "—".
       placeholderData: (prev: unknown) => prev,
